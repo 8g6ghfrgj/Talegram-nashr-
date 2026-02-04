@@ -1093,4 +1093,37 @@ class BotDatabase:
     # ============ وظائف التنظيف ============
     
     def cleanup_old_data(self, days=30):
-        """تنظيف البيانات
+        """تنظيف البيانات القديمة"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        
+        try:
+            # حذف السجلات القديمة
+            cursor.execute('''
+                DELETE FROM logs 
+                WHERE timestamp < datetime('now', ?)
+            ''', (f'-{days} days',))
+            
+            deleted_logs = cursor.rowcount
+            
+            conn.commit()
+            
+            logger.info(f"✅ تم تنظيف {deleted_logs} سجل قديم")
+            return True
+            
+        except Exception as e:
+            logger.error(f"خطأ في تنظيف البيانات: {e}")
+            return False
+        finally:
+            conn.close()
+    
+    def backup_database(self, backup_path):
+        """نسخ احتياطي لقاعدة البيانات"""
+        try:
+            import shutil
+            shutil.copy2(self.db_name, backup_path)
+            logger.info(f"✅ تم إنشاء نسخة احتياطية في: {backup_path}")
+            return True
+        except Exception as e:
+            logger.error(f"خطأ في إنشاء النسخة الاحتياطية: {e}")
+            return False
