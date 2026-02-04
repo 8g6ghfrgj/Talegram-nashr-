@@ -361,7 +361,8 @@ class ConversationHandlers:
     def setup_conversation_handlers(self, application):
         """إعداد معالجات المحادثة"""
         # معالج الأزرار الرئيسي
-        application.add_handler(CallbackQueryHandler(self.handle_callback))
+        # بعد جميع ConversationHandlers
+application.add_handler(CallbackQueryHandler(self.handle_callback))
         
         # محادثة إضافة الحساب
         from config import ADD_ACCOUNT
