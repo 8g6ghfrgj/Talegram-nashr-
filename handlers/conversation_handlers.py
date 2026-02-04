@@ -25,11 +25,6 @@ class ConversationHandlers:
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """معالجة جميع الأزرار العامة"""
         query = update.callback_query
-        
-        if query is None:
-            logger.error("Received callback without query")
-            return
-        
         await query.answer()
         
         data = query.data
@@ -52,11 +47,8 @@ class ConversationHandlers:
             elif data == "manage_accounts":
                 await self.account_handlers.manage_accounts(query, context)
             elif data == "add_account":
-                # التحقق من حالة المحادثة قبل البدء
-                if context.user_data.get('in_conversation', False):
-                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
-                    return
-                await self.account_handlers.add_account_start(query, context)
+                # استخدام Update بدلاً من query فقط
+                await self.account_handlers.add_account_start(update, context)
             elif data == "show_accounts":
                 await self.account_handlers.show_accounts(query, context)
             elif data.startswith("delete_account_"):
@@ -71,21 +63,11 @@ class ConversationHandlers:
             elif data == "manage_ads":
                 await self.ad_handlers.manage_ads(query, context)
             elif data == "add_ad":
-                # التحقق من حالة المحادثة قبل البدء
-                if context.user_data.get('in_conversation', False):
-                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
-                    return
                 await self.ad_handlers.add_ad_start(query, context)
             elif data == "show_ads":
                 await self.ad_handlers.show_ads(query, context)
             elif data == "ad_stats":
                 await self.ad_handlers.show_ad_stats(query, context)
-            elif data == "ad_type_text":
-                await self.ad_handlers.add_ad_type_text(query, context)
-            elif data == "ad_type_photo":
-                await self.ad_handlers.add_ad_type_photo(query, context)
-            elif data == "ad_type_contact":
-                await self.ad_handlers.add_ad_type_contact(query, context)
             elif data.startswith("delete_ad_"):
                 try:
                     ad_id = int(data.replace("delete_ad_", ""))
@@ -98,11 +80,8 @@ class ConversationHandlers:
             elif data == "manage_groups":
                 await self.group_handlers.manage_groups(query, context)
             elif data == "add_group":
-                # التحقق من حالة المحادثة قبل البدء
-                if context.user_data.get('in_conversation', False):
-                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
-                    return
-                await self.group_handlers.add_group_start(query, context)
+                # استخدام Update بدلاً من query فقط
+                await self.group_handlers.add_group_start(update, context)
             elif data == "show_groups":
                 await self.group_handlers.show_groups(query, context)
             elif data == "start_join_groups":
@@ -110,17 +89,13 @@ class ConversationHandlers:
             elif data == "stop_join_groups":
                 await self.group_handlers.stop_join_groups(query, context)
             
-            # أزرار إدارة المشرفين - تم إصلاح المشكلة هنا
+            # أزرار إدارة المشرفين - الإصلاح الرئيسي هنا
             elif data == "manage_admins":
                 await self.admin_handlers.manage_admins(query, context)
             elif data == "add_admin":
-                # التحقق من حالة المحادثة قبل البدء
-                if context.user_data.get('in_conversation', False):
-                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
-                    return
-                await self.admin_handlers.add_admin_start(query, context)
+                # استخدام Update بدلاً من query فقط
+                await self.admin_handlers.add_admin_start(update, context)
             elif data == "show_admins":
-                # هذا الزر تم إصلاحه
                 await self.admin_handlers.show_admins(query, context)
             elif data == "system_stats":
                 await self.admin_handlers.show_system_stats(query, context)
@@ -151,29 +126,17 @@ class ConversationHandlers:
             elif data == "show_replies":
                 await self.reply_handlers.show_replies_menu(query, context)
             elif data == "add_private_reply":
-                # التحقق من حالة المحادثة قبل البدء
-                if context.user_data.get('in_conversation', False):
-                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
-                    return
-                await self.reply_handlers.add_private_reply_start(query, context)
+                # استخدام Update بدلاً من query فقط
+                await self.reply_handlers.add_private_reply_start(update, context)
             elif data == "add_group_text_reply":
-                # التحقق من حالة المحادثة قبل البدء
-                if context.user_data.get('in_conversation', False):
-                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
-                    return
-                await self.reply_handlers.add_group_text_reply_start(query, context)
+                # استخدام Update بدلاً من query فقط
+                await self.reply_handlers.add_group_text_reply_start(update, context)
             elif data == "add_group_photo_reply":
-                # التحقق من حالة المحادثة قبل البدء
-                if context.user_data.get('in_conversation', False):
-                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
-                    return
-                await self.reply_handlers.add_group_photo_reply_start(query, context)
+                # استخدام Update بدلاً من query فقط
+                await self.reply_handlers.add_group_photo_reply_start(update, context)
             elif data == "add_random_reply":
-                # التحقق من حالة المحادثة قبل البدء
-                if context.user_data.get('in_conversation', False):
-                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
-                    return
-                await self.reply_handlers.add_random_reply_start(query, context)
+                # استخدام Update بدلاً من query فقط
+                await self.reply_handlers.add_random_reply_start(update, context)
             
             # أزرار حذف الردود
             elif data.startswith("delete_private_reply_"):
@@ -242,10 +205,22 @@ class ConversationHandlers:
             elif data == "stop_random_reply":
                 await self.reply_handlers.stop_random_reply(query, context)
             
-            # أزرار أنواع الإعلانات (يتم التعامل معها في ConversationHandler)
+            # أزرار أنواع الإعلانات - الإصلاح الرئيسي هنا
+            elif data == "ad_type_text":
+                # معالجة إضافة إعلان نصي
+                await self.ad_handlers.add_ad_type_text(update, context)
+            elif data == "ad_type_photo":
+                # معالجة إضافة إعلان بصورة
+                await self.ad_handlers.add_ad_type_photo(update, context)
+            elif data == "ad_type_contact":
+                # معالجة إضافة إعلان وجهة اتصال
+                await self.ad_handlers.add_ad_type_contact(update, context)
             elif data.startswith("ad_type_"):
-                # تم إضافة معالجة مباشرة لهذه الأزرار أعلاه
-                pass
+                # إذا كان هناك أنواع أخرى
+                await query.edit_message_text(f"📝 سيتم إضافة إعلان من نوع: {data.replace('ad_type_', '')}")
+                # الحفاظ على حالة المحادثة
+                context.user_data['ad_type'] = data.replace('ad_type_', '')
+                return
             
             # الأزرار غير المعروفة
             else:
@@ -256,16 +231,10 @@ class ConversationHandlers:
                 
         except Exception as e:
             logger.error(f"خطأ في معالجة الزر {data}: {e}", exc_info=True)
-            try:
-                await query.edit_message_text(
-                    "❌ حدث خطأ غير متوقع في النظام.\n"
-                    "الرجاء المحاولة مرة أخرى أو الاتصال بالمطور."
-                )
-            except:
-                await update.message.reply_text(
-                    "❌ حدث خطأ غير متوقع في النظام.\n"
-                    "الرجاء المحاولة مرة أخرى أو الاتصال بالمطور."
-                )
+            await query.edit_message_text(
+                "❌ حدث خطأ غير متوقع في النظام.\n"
+                "الرجاء المحاولة مرة أخرى أو الاتصال بالمطور."
+            )
 
     async def handle_back_buttons(self, query, context, data):
         """معالجة أزرار الرجوع"""
@@ -286,6 +255,22 @@ class ConversationHandlers:
                 await self.reply_handlers.manage_private_replies(query, context)
             elif data == "back_to_group_replies":
                 await self.reply_handlers.manage_group_replies(query, context)
+            elif data == "back_to_ad_management":
+                keyboard = [
+                    [InlineKeyboardButton("📝 إعلان نصي", callback_data="ad_type_text")],
+                    [InlineKeyboardButton("🖼️ إعلان بصورة", callback_data="ad_type_photo")],
+                    [InlineKeyboardButton("👤 وجهة اتصال", callback_data="ad_type_contact")],
+                    [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_ads")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    "📢 **اختر نوع الإعلان:**\n\n"
+                    "📝 **إعلان نصي:** نص فقط\n"
+                    "🖼️ **إعلان بصورة:** صورة مع نص\n"
+                    "👤 **وجهة اتصال:** معلومات اتصال",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
         except Exception as e:
             logger.error(f"خطأ في معالجة زر الرجوع {data}: {e}")
             await query.edit_message_text("❌ خطأ في معالجة أمر الرجوع!")
@@ -425,13 +410,13 @@ class ConversationHandlers:
         )
         application.add_handler(add_account_conv)
         
-        # محادثة إضافة الإعلان
-        from config import ADD_AD_TEXT, ADD_AD_MEDIA
+        # محادثة إضافة الإعلان - تم التعديل لدعم الأنواع المختلفة
+        from config import ADD_AD_TEXT, ADD_AD_MEDIA, ADD_AD_CONTACT
         
-        # محادثة الإعلان النصي
-        ad_text_conv = ConversationHandler(
+        # إضافة إعلان نصي
+        add_text_ad_conv = ConversationHandler(
             entry_points=[CallbackQueryHandler(
-                self.ad_handlers.add_ad_type_text,
+                lambda update, context: self.ad_handlers.add_ad_type_text(update, context),
                 pattern="^ad_type_text$"
             )],
             states={
@@ -444,11 +429,12 @@ class ConversationHandlers:
             },
             fallbacks=[CommandHandler("cancel", self.cancel)]
         )
+        application.add_handler(add_text_ad_conv)
         
-        # محادثة الإعلان مع صورة
-        ad_photo_conv = ConversationHandler(
+        # إضافة إعلان بصورة
+        add_photo_ad_conv = ConversationHandler(
             entry_points=[CallbackQueryHandler(
-                self.ad_handlers.add_ad_type_photo,
+                lambda update, context: self.ad_handlers.add_ad_type_photo(update, context),
                 pattern="^ad_type_photo$"
             )],
             states={
@@ -459,16 +445,18 @@ class ConversationHandlers:
                     )
                 ],
                 ADD_AD_MEDIA: [
-                    MessageHandler(filters.PHOTO, self.ad_handlers.add_ad_media)
+                    MessageHandler(filters.PHOTO, self.ad_handlers.add_ad_media),
+                    MessageHandler(filters.Document.IMAGE, self.ad_handlers.add_ad_media)
                 ]
             },
             fallbacks=[CommandHandler("cancel", self.cancel)]
         )
+        application.add_handler(add_photo_ad_conv)
         
-        # محادثة الإعلان مع جهة اتصال
-        ad_contact_conv = ConversationHandler(
+        # إضافة إعلان وجهة اتصال
+        add_contact_ad_conv = ConversationHandler(
             entry_points=[CallbackQueryHandler(
-                self.ad_handlers.add_ad_type_contact,
+                lambda update, context: self.ad_handlers.add_ad_type_contact(update, context),
                 pattern="^ad_type_contact$"
             )],
             states={
@@ -478,16 +466,13 @@ class ConversationHandlers:
                         self.ad_handlers.add_ad_text
                     )
                 ],
-                ADD_AD_MEDIA: [
-                    MessageHandler(filters.CONTACT, self.ad_handlers.add_ad_media)
+                ADD_AD_CONTACT: [
+                    MessageHandler(filters.CONTACT, self.ad_handlers.add_ad_contact)
                 ]
             },
             fallbacks=[CommandHandler("cancel", self.cancel)]
         )
-        
-        application.add_handler(ad_text_conv)
-        application.add_handler(ad_photo_conv)
-        application.add_handler(ad_contact_conv)
+        application.add_handler(add_contact_ad_conv)
         
         # محادثة إضافة المجموعة
         from config import ADD_GROUP
@@ -508,7 +493,7 @@ class ConversationHandlers:
         )
         application.add_handler(add_group_conv)
         
-        # محادثة إضافة المشرف
+        # محادثة إضافة المشرف - الإصلاح هنا
         from config import ADD_ADMIN
         add_admin_conv = ConversationHandler(
             entry_points=[CallbackQueryHandler(
@@ -547,7 +532,7 @@ class ConversationHandlers:
         application.add_handler(private_reply_conv)
         
         # محادثة إضافة رد نصي في القروبات
-        from config import ADD_GROUP_TEXT, ADD_GROUP_TEXT_REPLY
+        from config import ADD_GROUP_TEXT
         group_text_reply_conv = ConversationHandler(
             entry_points=[CallbackQueryHandler(
                 self.reply_handlers.add_group_text_reply_start,
@@ -558,9 +543,7 @@ class ConversationHandlers:
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
                         self.reply_handlers.add_group_text_reply_trigger
-                    )
-                ],
-                ADD_GROUP_TEXT_REPLY: [
+                    ),
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
                         self.reply_handlers.add_group_text_reply_text
@@ -572,7 +555,7 @@ class ConversationHandlers:
         application.add_handler(group_text_reply_conv)
         
         # محادثة إضافة رد مع صورة في القروبات
-        from config import ADD_GROUP_PHOTO, ADD_GROUP_PHOTO_REPLY, ADD_GROUP_PHOTO_MEDIA
+        from config import ADD_GROUP_PHOTO
         group_photo_reply_conv = ConversationHandler(
             entry_points=[CallbackQueryHandler(
                 self.reply_handlers.add_group_photo_reply_start,
@@ -583,15 +566,11 @@ class ConversationHandlers:
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
                         self.reply_handlers.add_group_photo_reply_trigger
-                    )
-                ],
-                ADD_GROUP_PHOTO_REPLY: [
+                    ),
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
                         self.reply_handlers.add_group_photo_reply_text
-                    )
-                ],
-                ADD_GROUP_PHOTO_MEDIA: [
+                    ),
                     MessageHandler(
                         filters.PHOTO,
                         self.reply_handlers.add_group_photo_reply_photo
@@ -603,7 +582,7 @@ class ConversationHandlers:
         application.add_handler(group_photo_reply_conv)
         
         # محادثة إضافة رد عشوائي
-        from config import ADD_RANDOM_REPLY, ADD_RANDOM_MEDIA
+        from config import ADD_RANDOM_REPLY
         random_reply_conv = ConversationHandler(
             entry_points=[CallbackQueryHandler(
                 self.reply_handlers.add_random_reply_start,
@@ -614,9 +593,7 @@ class ConversationHandlers:
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
                         self.reply_handlers.add_random_reply_text
-                    )
-                ],
-                ADD_RANDOM_MEDIA: [
+                    ),
                     MessageHandler(
                         filters.PHOTO,
                         self.reply_handlers.add_random_reply_media
@@ -631,25 +608,26 @@ class ConversationHandlers:
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """إلغاء الأمر الحالي"""
         try:
-            # تنظيف بيانات المستخدم
-            context.user_data.clear()
-            context.user_data['in_conversation'] = False
-            
+            # التعامل مع كل من الرسائل والاستعلامات
             if update.message:
                 user_id = update.message.from_user.id
-                if not self.db.is_admin(user_id):
-                    await update.message.reply_text("❌ ليس لديك صلاحية للوصول إلى هذا البوت.")
-                    return ConversationHandler.END
-                
-                await update.message.reply_text("❌ تم إلغاء الأمر.")
             elif update.callback_query:
                 user_id = update.callback_query.from_user.id
-                if not self.db.is_admin(user_id):
-                    await update.callback_query.edit_message_text("❌ ليس لديك صلاحية للوصول إلى هذا البوت.")
-                    return ConversationHandler.END
+            else:
+                return ConversationHandler.END
                 
-                await update.callback_query.edit_message_text("❌ تم إلغاء الأمر.")
+            if not self.db.is_admin(user_id):
+                if update.message:
+                    await update.message.reply_text("❌ ليس لديك صلاحية للوصول إلى هذا البوت.")
+                elif update.callback_query:
+                    await update.callback_query.message.reply_text("❌ ليس لديك صلاحية للوصول إلى هذا البوت.")
+                return ConversationHandler.END
             
+            if update.message:
+                await update.message.reply_text("❌ تم إلغاء الأمر.")
+            elif update.callback_query:
+                await update.callback_query.message.reply_text("❌ تم إلغاء الأمر.")
+                
             return ConversationHandler.END
             
         except Exception as e:
