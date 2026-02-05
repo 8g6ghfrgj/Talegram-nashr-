@@ -2,74 +2,57 @@ import os
 import sys
 import logging
 import asyncio
-import threading
-from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
 
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    MessageHandler,
     ConversationHandler,
+    MessageHandler,
+    ContextTypes,
     filters
 )
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from config import (
+    BOT_TOKEN,
+    OWNER_ID,
+    ADD_ACCOUNT,
+    MESSAGES
+)
 
-from config import BOT_TOKEN, OWNER_ID, MESSAGES
 from database.database import BotDatabase
-from managers.telegram_manager import TelegramBotManager
 
-from handlers.admin_handlers import AdminHandlers
 from handlers.account_handlers import AccountHandlers
 from handlers.ad_handlers import AdHandlers
 from handlers.group_handlers import GroupHandlers
 from handlers.reply_handlers import ReplyHandlers
+from handlers.admin_handlers import AdminHandlers
 from handlers.conversation_handlers import ConversationHandlers
 
+from managers.telegram_manager import TelegramBotManager
 
-# ================= LOGGING =================
+
+# ==================================================
+# LOGGING
+# ==================================================
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("temp_files/logs/bot.log", encoding="utf-8")
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
 )
 
 logger = logging.getLogger(__name__)
 
 
-# ================= HEALTH SERVER =================
-
-class HealthHandler(BaseHTTPRequestHandler):
-
-    def do_GET(self):
-
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is running")
-
-    def log_message(self, format, *args):
-        pass
-
-
-def run_health_server():
-
-    port = int(os.environ.get("PORT", 8080))
-
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
-
-    logger.info(f"🌐 Health server running on {port}")
-
-    server.serve_forever()
-
-
-# ================= MAIN BOT =================
+# ==================================================
+# MAIN BOT CLASS
+# ==================================================
 
 class MainBot:
 
@@ -79,21 +62,18 @@ class MainBot:
             print("❌ BOT_TOKEN غير موجود")
             sys.exit(1)
 
-        if not OWNER_ID:
-            print("❌ OWNER_ID غير موجود")
-            sys.exit(1)
-
-        self.create_folders()
-
+        # Database
         self.db = BotDatabase()
 
+        # Manager
         self.manager = TelegramBotManager(self.db)
 
-        self.admin_handlers = AdminHandlers(self.db, self.manager)
+        # Handlers
         self.account_handlers = AccountHandlers(self.db, self.manager)
         self.ad_handlers = AdHandlers(self.db, self.manager)
         self.group_handlers = GroupHandlers(self.db, self.manager)
         self.reply_handlers = ReplyHandlers(self.db, self.manager)
+        self.admin_handlers = AdminHandlers(self.db, self.manager)
 
         self.conversation_handlers = ConversationHandlers(
             self.db,
@@ -105,59 +85,50 @@ class MainBot:
             self.reply_handlers
         )
 
-        self.application = Application.builder().token(BOT_TOKEN).build()
+        # Telegram app
+        self.app = Application.builder().token(BOT_TOKEN).build()
 
         self.setup_handlers()
 
-        self.add_owner()
+        self.add_owner_if_not_exists()
 
-        logger.info("✅ Bot initialized")
-
-
-    # ================= SETUP =================
-
-    def create_folders(self):
-
-        paths = [
-            "temp_files/ads",
-            "temp_files/group_replies",
-            "temp_files/random_replies",
-            "temp_files/logs"
-        ]
-
-        for path in paths:
-            os.makedirs(path, exist_ok=True)
+        print("✅ البوت جاهز")
 
 
-    def add_owner(self):
+    # ==================================================
+    # OWNER
+    # ==================================================
 
+    def add_owner_if_not_exists(self):
         try:
             self.db.add_admin(
                 OWNER_ID,
                 "@owner",
-                "Main Owner",
+                "المالك الرئيسي",
                 True
             )
         except:
             pass
 
 
-    # ================= COMMANDS =================
+    # ==================================================
+    # START
+    # ==================================================
 
-    async def start(self, update: Update, context):
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_id = update.effective_user.id
 
         if not self.db.is_admin(user_id):
-            await update.message.reply_text("❌ ليس لديك صلاحية")
+            await update.message.reply_text(MESSAGES["unauthorized"])
             return
 
         keyboard = [
-            [InlineKeyboardButton("👥 الحسابات", callback_data="manage_accounts")],
-            [InlineKeyboardButton("📢 الإعلانات", callback_data="manage_ads")],
-            [InlineKeyboardButton("👥 المجموعات", callback_data="manage_groups")],
-            [InlineKeyboardButton("💬 الردود", callback_data="manage_replies")],
-            [InlineKeyboardButton("👨‍💼 المشرفين", callback_data="manage_admins")],
+            [InlineKeyboardButton("👥 إدارة الحسابات", callback_data="manage_accounts")],
+            [InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="manage_ads")],
+            [InlineKeyboardButton("👥 إدارة المجموعات", callback_data="manage_groups")],
+            [InlineKeyboardButton("💬 إدارة الردود", callback_data="manage_replies")],
+            [InlineKeyboardButton("👨‍💼 إدارة المشرفين", callback_data="manage_admins")],
             [InlineKeyboardButton("🚀 بدء النشر", callback_data="start_publishing")],
             [InlineKeyboardButton("⏹️ إيقاف النشر", callback_data="stop_publishing")]
         ]
@@ -169,16 +140,11 @@ class MainBot:
         )
 
 
-    async def cancel(self, update: Update, context):
+    # ==================================================
+    # CALLBACK ROUTER
+    # ==================================================
 
-        await update.message.reply_text("❌ تم الإلغاء")
-
-        return ConversationHandler.END
-
-
-    # ================= CALLBACK =================
-
-    async def handle_callback(self, update: Update, context):
+    async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         query = update.callback_query
         await query.answer()
@@ -186,12 +152,14 @@ class MainBot:
         user_id = query.from_user.id
 
         if not self.db.is_admin(user_id):
-            await query.edit_message_text("❌ ليس لديك صلاحية")
+            await query.edit_message_text(MESSAGES["unauthorized"])
             return
 
         data = query.data
 
         try:
+
+            # ---------- MAIN MENUS ----------
 
             if data == "manage_accounts":
                 await self.account_handlers.manage_accounts(query, context)
@@ -214,94 +182,139 @@ class MainBot:
             elif data == "stop_publishing":
                 await self.conversation_handlers.stop_publishing(query, context)
 
+
+            # ---------- ACCOUNT SECTION ----------
+
+            elif data == "add_account":
+                return await self.account_handlers.add_account_start(update, context)
+
+            elif data == "show_accounts":
+                await self.account_handlers.show_accounts(query, context)
+
+            elif data == "account_stats":
+                await self.account_handlers.show_account_stats(query, context)
+
+
+            elif data.startswith("delete_account_"):
+                acc_id = int(data.split("_")[-1])
+                await self.account_handlers.delete_account(query, context, acc_id)
+
+            elif data.startswith("toggle_account_"):
+                acc_id = int(data.split("_")[-1])
+                await self.account_handlers.toggle_account_status(query, context, acc_id)
+
+
+            # ---------- BACK BUTTONS ----------
+
+            elif data in (
+                "back_to_main",
+                "back_to_accounts",
+                "back_to_ads",
+                "back_to_groups",
+                "back_to_replies",
+                "back_to_admins",
+                "back_to_private_replies",
+                "back_to_group_replies"
+            ):
+                await self.conversation_handlers.handle_back_buttons(
+                    query, context, data
+                )
+
+
+            # ---------- OTHER CALLBACKS ----------
+
             else:
                 await self.conversation_handlers.handle_callback(query, context)
+
 
         except Exception as e:
 
             logger.error(f"Callback error: {e}")
 
-            await query.edit_message_text("❌ حدث خطأ")
-
-
-    # ================= TEXT HANDLER =================
-
-    async def handle_message(self, update: Update, context):
-
-        user_id = update.message.from_user.id
-
-        if not self.db.is_admin(user_id):
-            await update.message.reply_text("❌ ليس لديك صلاحية")
-            return
-
-        await update.message.reply_text("⚠️ استخدم القائمة")
-
-
-    # ================= HANDLERS =================
-
-    def setup_handlers(self):
-
-        self.application.add_handler(CommandHandler("start", self.start))
-        self.application.add_handler(CommandHandler("cancel", self.cancel))
-
-        self.conversation_handlers.setup_conversation_handlers(self.application)
-
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback))
-
-        self.application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
-        )
-
-        self.application.add_error_handler(self.error_handler)
-
-
-    async def error_handler(self, update: Update, context):
-
-        logger.error(context.error)
-
-        if update and update.effective_message:
             try:
-                await update.effective_message.reply_text("❌ خطأ في النظام")
+                await query.edit_message_text(
+                    "❌ حدث خطأ غير متوقع في النظام."
+                )
             except:
                 pass
 
 
-    # ================= RUN =================
+    # ==================================================
+    # CANCEL
+    # ==================================================
+
+    async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+        user_id = update.message.from_user.id
+
+        if not self.db.is_admin(user_id):
+            await update.message.reply_text(MESSAGES["unauthorized"])
+            return ConversationHandler.END
+
+        await update.message.reply_text("❌ تم الإلغاء")
+
+        await self.start(update, context)
+
+        return ConversationHandler.END
+
+
+    # ==================================================
+    # TEXT FALLBACK
+    # ==================================================
+
+    async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+        user_id = update.message.from_user.id
+
+        if not self.db.is_admin(user_id):
+            await update.message.reply_text(MESSAGES["unauthorized"])
+            return
+
+        await update.message.reply_text(
+            "⚠️ استخدم الأزرار للتنقل داخل البوت"
+        )
+
+
+    # ==================================================
+    # HANDLERS SETUP
+    # ==================================================
+
+    def setup_handlers(self):
+
+        self.app.add_handler(CommandHandler("start", self.start))
+        self.app.add_handler(CommandHandler("cancel", self.cancel))
+
+        # Conversation handlers (ads, replies, etc)
+        self.conversation_handlers.setup_conversation_handlers(self.app)
+
+        self.app.add_handler(CallbackQueryHandler(self.handle_callback))
+
+        self.app.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text)
+        )
+
+
+    # ==================================================
+    # RUN
+    # ==================================================
 
     def run(self):
 
-        print("🚀 Bot running")
+        print("🚀 البوت يعمل الآن...")
 
-        health_thread = threading.Thread(
-            target=run_health_server,
-            daemon=True
+        self.app.run_polling(
+            drop_pending_updates=True
         )
 
-        health_thread.start()
 
-        try:
-            self.application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
-            )
-
-        except KeyboardInterrupt:
-
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            loop.run_until_complete(self.manager.cleanup_all())
-
-
-# ================= ENTRY =================
+# ==================================================
+# MAIN
+# ==================================================
 
 def main():
-
     bot = MainBot()
-
     bot.run()
 
 
 if __name__ == "__main__":
-
     main()
