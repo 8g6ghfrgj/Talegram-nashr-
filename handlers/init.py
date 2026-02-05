@@ -1,7 +1,13 @@
 """
-حزمة معالجات البوت الفعلي
+حزمة معالجات البوت
 
-هذه الحزمة تحتوي على جميع معالجات الأوامر والمحادثات للبوت.
+تحتوي على جميع الكلاسات المسؤولة عن:
+- الحسابات
+- الإعلانات
+- المجموعات
+- الردود
+- المشرفين
+- المحادثات
 """
 
 from .account_handlers import AccountHandlers
@@ -11,13 +17,15 @@ from .reply_handlers import ReplyHandlers
 from .admin_handlers import AdminHandlers
 from .conversation_handlers import ConversationHandlers
 
+
 __all__ = [
-    'AccountHandlers',
-    'AdHandlers',
-    'GroupHandlers', 
-    'ReplyHandlers',
-    'AdminHandlers',
-    'ConversationHandlers'
+    "AccountHandlers",
+    "AdHandlers",
+    "GroupHandlers",
+    "ReplyHandlers",
+    "AdminHandlers",
+    "ConversationHandlers",
 ]
 
-__version__ = '1.0.0'
+
+__version__ = "1.0.0"
