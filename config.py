@@ -1,4 +1,5 @@
 import os
+from logging import INFO
 
 # ============ إعدادات البوت ============
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -53,12 +54,46 @@ FILE_SETTINGS = {
 }
 
 # ============ حالات المحادثة ============
+# تعريف جميع حالات المحادثة المطلوبة
 (
-    ADD_ACCOUNT, ADD_AD_TYPE, ADD_AD_TEXT, ADD_AD_MEDIA,
-    ADD_GROUP, ADD_PRIVATE_REPLY, ADD_ADMIN,
-    ADD_RANDOM_REPLY, ADD_PRIVATE_TEXT, ADD_GROUP_TEXT,
+    ADD_ACCOUNT,
+    ADD_AD_TYPE,
+    ADD_AD_TEXT,
+    ADD_AD_MEDIA,
+    ADD_GROUP,
+    ADD_PRIVATE_REPLY,
+    ADD_ADMIN,
+    ADD_RANDOM_REPLY,
+    ADD_PRIVATE_TEXT,
+    ADD_GROUP_TEXT,
     ADD_GROUP_PHOTO
 ) = range(11)
+
+# تعريف حالات إضافية لاستخدامات خاصة
+# هذه الحالات تستخدم في محادثات إضافية
+ADD_GROUP_TEXT_REPLY = 20
+ADD_GROUP_PHOTO_REPLY = 21
+ADD_GROUP_PHOTO_MEDIA = 22
+ADD_RANDOM_MEDIA = 23
+
+# أو يمكن تعريفها بالتسلسل:
+# (
+#     ADD_ACCOUNT,
+#     ADD_AD_TYPE,
+#     ADD_AD_TEXT,
+#     ADD_AD_MEDIA,
+#     ADD_GROUP,
+#     ADD_PRIVATE_REPLY,
+#     ADD_ADMIN,
+#     ADD_RANDOM_REPLY,
+#     ADD_PRIVATE_TEXT,
+#     ADD_GROUP_TEXT,
+#     ADD_GROUP_PHOTO,
+#     ADD_GROUP_TEXT_REPLY,
+#     ADD_GROUP_PHOTO_REPLY,
+#     ADD_GROUP_PHOTO_MEDIA,
+#     ADD_RANDOM_MEDIA
+# ) = range(15)
 
 # ============ أنواع الإعلانات ============
 AD_TYPES = {
@@ -76,9 +111,12 @@ GROUP_STATUS = {
 
 # ============ إعدادات السجل ============
 LOGGING_CONFIG = {
-    'level': 'INFO',
+    'level': INFO,
     'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    'date_format': '%Y-%m-%d %H:%M:%S'
+    'date_format': '%Y-%m-%d %H:%M:%S',
+    'file': 'bot.log',
+    'max_size': 10 * 1024 * 1024,  # 10 MB
+    'backup_count': 5
 }
 
 # ============ رسائل البوت ============
@@ -104,6 +142,55 @@ MESSAGES = {
     'no_groups': "❌ لا توجد مجموعات مضافة!",
     
     'no_admins': "❌ لا توجد مشرفين مضافة!",
+    
+    'ad_added': "✅ **تم حفظ الإعلان بنجاح!**\n\n"
+                "🆔 **رقم الإعلان:** `{}`\n"
+                "📝 **النوع:** {}\n"
+                "📝 **النص:** {}",
+    
+    'account_added': "✅ **تم إضافة الحساب بنجاح!**\n\n"
+                     "🆔 **رقم الحساب:** `{}`\n"
+                     "📱 **رقم الهاتف:** {}",
+    
+    'group_added': "✅ **تم إضافة المجموعة بنجاح!**\n\n"
+                   "🆔 **رقم المجموعة:** `{}`\n"
+                   "🔗 **الرابط:** {}",
+    
+    'admin_added': "✅ **تم إضافة المشرف بنجاح!**\n\n"
+                   "🆔 **رقم المشرف:** `{}`\n"
+                   "👤 **آيدي المستخدم:** {}",
+}
+
+# ============ أزرار القوائم ============
+BUTTONS = {
+    'main_menu': {
+        'accounts': "👥 إدارة الحسابات",
+        'ads': "📢 إدارة الإعلانات",
+        'groups': "👥 إدارة المجموعات",
+        'replies': "💬 إدارة الردود",
+        'admins': "👨‍💼 إدارة المشرفين",
+        'start_publishing': "🚀 بدء النشر",
+        'stop_publishing': "⏹️ إيقاف النشر"
+    },
+    
+    'ad_types': {
+        'text': "📝 إعلان نصي",
+        'photo': "🖼️ إعلان بصورة",
+        'contact': "📞 إعلان جهة اتصال"
+    },
+    
+    'back': "🔙 رجوع",
+    'cancel': "❌ إلغاء"
+}
+
+# ============ إعدادات التطبيق ============
+APP_SETTINGS = {
+    'max_accounts_per_admin': 10,
+    'max_ads_per_admin': 50,
+    'max_groups_per_admin': 100,
+    'max_replies_per_admin': 20,
+    'session_timeout': 3600,  # 1 ساعة
+    'cleanup_interval': 300,  # 5 دقائق
 }
 
 # ============ وظيفة للتحقق من التوكن ============
@@ -134,4 +221,66 @@ def print_config():
     print(f"👑 المالك: {OWNER_ID}")
     print(f"📊 تأخير نشر القروبات: {DELAY_SETTINGS['publishing']['group_publishing_delay']} ثانية")
     print(f"📁 اسم ملف جهات الاتصال: {FILE_SETTINGS['contact_filename']}")
+    print(f"📝 أنواع الإعلانات: {', '.join(AD_TYPES.values())}")
+    print(f"📊 الحد الأقصى للإعلانات: {APP_SETTINGS['max_ads_per_admin']}")
     print("=" * 60)
+
+# ============ إعدادات العرض ============
+DISPLAY_SETTINGS = {
+    'truncate_length': 100,  # طول النص المختصر
+    'ads_per_page': 5,
+    'accounts_per_page': 5,
+    'groups_per_page': 5,
+    'admins_per_page': 5,
+    'replies_per_page': 5,
+}
+
+# ============ إعدادات الأمان ============
+SECURITY_SETTINGS = {
+    'min_password_length': 6,
+    'session_validation': True,
+    'ip_tracking': False,
+    'max_login_attempts': 3,
+    'lockout_duration': 300,  # 5 دقائق
+}
+
+# ============ أنواع الملفات المسموحة ============
+ALLOWED_FILE_TYPES = {
+    'photos': ['.jpg', '.jpeg', '.png', '.gif'],
+    'documents': ['.pdf', '.doc', '.docx', '.txt'],
+    'contacts': ['.vcf']
+}
+
+# ============ إعدادات قاعدة البيانات المتقدمة ============
+DATABASE_SETTINGS = {
+    'connection_timeout': 30,
+    'journal_mode': 'WAL',
+    'synchronous': 'NORMAL',
+    'cache_size': -2000,  # 2MB
+    'foreign_keys': True,
+    'temp_store': 'MEMORY'
+}
+
+# ============ وظيفة التحقق من الإعدادات ============
+def check_all_settings():
+    """فحص كافة الإعدادات"""
+    print_config()
+    
+    # التحقق من المجلدات
+    directories = FILE_SETTINGS['directories']
+    for name, path in directories.items():
+        if not os.path.exists(path):
+            os.makedirs(path)
+            print(f"📁 تم إنشاء مجلد: {path}")
+    
+    # التحقق من قاعدة البيانات
+    if not os.path.exists(DB_NAME):
+        print(f"📊 قاعدة البيانات '{DB_NAME}' سيتم إنشاؤها تلقائياً")
+    
+    return True
+
+# ============ بدء التشغيل ============
+if __name__ == "__main__":
+    # عند تشغيل الملف مباشرة، عرض الإعدادات
+    print_config()
+    print("✅ ملف الإعدادات جاهز للاستخدام")
