@@ -11,6 +11,7 @@ from telegram.ext import (
 
 from config import (
     ADD_ACCOUNT,
+    ADD_AD_TYPE,
     ADD_AD_TEXT,
     ADD_AD_MEDIA,
     ADD_GROUP,
@@ -69,7 +70,7 @@ class ConversationHandlers:
 
             # ---------- ACCOUNTS ----------
 
-            if data == "manage_accounts":
+            elif data == "manage_accounts":
                 await self.account_handlers.manage_accounts(query, context)
 
             elif data == "show_accounts":
@@ -79,14 +80,12 @@ class ConversationHandlers:
                 await self.account_handlers.show_account_stats(query, context)
 
             elif data.startswith("delete_account_"):
-                await self.account_handlers.delete_account(
-                    query, context, int(data.split("_")[-1])
-                )
+                acc_id = int(data.split("_")[-1])
+                await self.account_handlers.delete_account(query, context, acc_id)
 
             elif data.startswith("toggle_account_"):
-                await self.account_handlers.toggle_account_status(
-                    query, context, int(data.split("_")[-1])
-                )
+                acc_id = int(data.split("_")[-1])
+                await self.account_handlers.toggle_account_status(query, context, acc_id)
 
             # ---------- ADS ----------
 
@@ -96,9 +95,6 @@ class ConversationHandlers:
             elif data == "add_ad":
                 await self.ad_handlers.add_ad_start(query, context)
 
-            elif data.startswith("ad_type_"):
-                await self.ad_handlers.add_ad_type(query, context)
-
             elif data == "show_ads":
                 await self.ad_handlers.show_ads(query, context)
 
@@ -106,9 +102,8 @@ class ConversationHandlers:
                 await self.ad_handlers.show_ad_stats(query, context)
 
             elif data.startswith("delete_ad_"):
-                await self.ad_handlers.delete_ad(
-                    query, context, int(data.split("_")[-1])
-                )
+                ad_id = int(data.split("_")[-1])
+                await self.ad_handlers.delete_ad(query, context, ad_id)
 
             # ---------- GROUPS ----------
 
@@ -127,18 +122,10 @@ class ConversationHandlers:
             elif data == "group_stats":
                 await self.group_handlers.show_group_stats(query, context)
 
-            elif data.startswith("delete_group_"):
-                await self.group_handlers.delete_group(
-                    query, context, int(data.split("_")[-1])
-                )
-
             # ---------- ADMINS ----------
 
             elif data == "manage_admins":
                 await self.admin_handlers.manage_admins(query, context)
-
-            elif data == "add_admin":
-                await self.admin_handlers.add_admin_start(update, context)
 
             elif data == "show_admins":
                 await self.admin_handlers.show_admins(query, context)
@@ -147,20 +134,26 @@ class ConversationHandlers:
                 await self.admin_handlers.show_system_stats(query, context)
 
             elif data.startswith("delete_admin_"):
-                await self.admin_handlers.delete_admin(
-                    query, context, int(data.split("_")[-1])
-                )
+                admin_id = int(data.split("_")[-1])
+                await self.admin_handlers.delete_admin(query, context, admin_id)
+
+            elif data.startswith("toggle_admin_"):
+                admin_id = int(data.split("_")[-1])
+                await self.admin_handlers.toggle_admin_status(query, context, admin_id)
 
             # ---------- REPLIES ----------
 
             elif data == "manage_replies":
                 await self.reply_handlers.manage_replies(query, context)
 
-            elif data == "add_private_reply":
-                await self.reply_handlers.add_private_reply_start(update, context)
+            elif data == "private_replies":
+                await self.reply_handlers.manage_private_replies(query, context)
 
-            elif data == "add_random_reply":
-                await self.reply_handlers.add_random_reply_start(update, context)
+            elif data == "group_replies":
+                await self.reply_handlers.manage_group_replies(query, context)
+
+            elif data == "show_replies":
+                await self.reply_handlers.show_replies_menu(query, context)
 
             # ---------- PUBLISH ----------
 
@@ -170,7 +163,10 @@ class ConversationHandlers:
             elif data == "stop_publishing":
                 await self.stop_publishing(query, context)
 
-            # ---------- UNKNOWN ----------
+            # ---------- CONVERSATION IGNORE ----------
+
+            elif data.startswith("ad_type_"):
+                return
 
             else:
                 await query.edit_message_text("❌ زر غير معروف")
@@ -192,6 +188,8 @@ class ConversationHandlers:
             "back_to_groups": self.group_handlers.manage_groups,
             "back_to_admins": self.admin_handlers.manage_admins,
             "back_to_replies": self.reply_handlers.manage_replies,
+            "back_to_private_replies": self.reply_handlers.manage_private_replies,
+            "back_to_group_replies": self.reply_handlers.manage_group_replies,
         }
 
         func = mapping.get(data)
@@ -259,115 +257,169 @@ class ConversationHandlers:
 
     async def stop_publishing(self, query, context):
 
-        if self.manager.stop_publishing(query.from_user.id):
+        admin_id = query.from_user.id
+
+        if self.manager.stop_publishing(admin_id):
             await query.edit_message_text("⏹️ تم إيقاف النشر")
         else:
             await query.edit_message_text("⚠️ النشر غير نشط")
 
     # ==================================================
-    # CONVERSATIONS
+    # CONVERSATION SETUP
     # ==================================================
 
     def setup_conversation_handlers(self, application):
 
-        # ADD ACCOUNT
+        # ===== ADD ACCOUNT =====
+
         application.add_handler(
             ConversationHandler(
-                entry_points=[CallbackQueryHandler(
-                    self.account_handlers.add_account_start,
-                    pattern="^add_account$"
-                )],
+                entry_points=[
+                    CallbackQueryHandler(
+                        self.account_handlers.add_account_start,
+                        pattern="^add_account$"
+                    )
+                ],
                 states={
                     ADD_ACCOUNT: [
-                        MessageHandler(filters.TEXT, self.account_handlers.add_account_session)
+                        MessageHandler(
+                            filters.TEXT & ~filters.COMMAND,
+                            self.account_handlers.add_account_session
+                        )
                     ]
                 },
                 fallbacks=[CommandHandler("cancel", self.cancel)]
             )
         )
 
-        # ADD AD TEXT/MEDIA
+        # ===== ADD AD =====
+
         application.add_handler(
             ConversationHandler(
-                entry_points=[],
+                entry_points=[
+                    CallbackQueryHandler(
+                        self.ad_handlers.add_ad_start,
+                        pattern="^add_ad$"
+                    )
+                ],
                 states={
+                    ADD_AD_TYPE: [
+                        CallbackQueryHandler(
+                            self.ad_handlers.add_ad_type,
+                            pattern="^ad_type_"
+                        )
+                    ],
                     ADD_AD_TEXT: [
-                        MessageHandler(filters.TEXT, self.ad_handlers.add_ad_text)
+                        MessageHandler(
+                            filters.TEXT & ~filters.COMMAND,
+                            self.ad_handlers.add_ad_text
+                        )
                     ],
                     ADD_AD_MEDIA: [
-                        MessageHandler(filters.ALL, self.ad_handlers.add_ad_media)
+                        MessageHandler(
+                            filters.ALL,
+                            self.ad_handlers.add_ad_media
+                        )
                     ]
                 },
                 fallbacks=[CommandHandler("cancel", self.cancel)]
             )
         )
 
-        # ADD GROUP
+        # ===== ADD GROUP =====
+
         application.add_handler(
             ConversationHandler(
-                entry_points=[CallbackQueryHandler(
-                    self.group_handlers.add_group_start,
-                    pattern="^add_group$"
-                )],
+                entry_points=[
+                    CallbackQueryHandler(
+                        self.group_handlers.add_group_start,
+                        pattern="^add_group$"
+                    )
+                ],
                 states={
                     ADD_GROUP: [
-                        MessageHandler(filters.TEXT, self.group_handlers.add_group_link)
+                        MessageHandler(
+                            filters.TEXT & ~filters.COMMAND,
+                            self.group_handlers.add_group_link
+                        )
                     ]
                 },
                 fallbacks=[CommandHandler("cancel", self.cancel)]
             )
         )
 
-        # ADD ADMIN
+        # ===== ADD ADMIN =====
+
         application.add_handler(
             ConversationHandler(
-                entry_points=[CallbackQueryHandler(
-                    self.admin_handlers.add_admin_start,
-                    pattern="^add_admin$"
-                )],
+                entry_points=[
+                    CallbackQueryHandler(
+                        self.admin_handlers.add_admin_start,
+                        pattern="^add_admin$"
+                    )
+                ],
                 states={
                     ADD_ADMIN: [
-                        MessageHandler(filters.TEXT, self.admin_handlers.add_admin_id)
+                        MessageHandler(
+                            filters.TEXT & ~filters.COMMAND,
+                            self.admin_handlers.add_admin_id
+                        )
                     ]
                 },
                 fallbacks=[CommandHandler("cancel", self.cancel)]
             )
         )
 
-        # PRIVATE REPLY
+        # ===== PRIVATE REPLY =====
+
         application.add_handler(
             ConversationHandler(
-                entry_points=[CallbackQueryHandler(
-                    self.reply_handlers.add_private_reply_start,
-                    pattern="^add_private_reply$"
-                )],
+                entry_points=[
+                    CallbackQueryHandler(
+                        self.reply_handlers.add_private_reply_start,
+                        pattern="^add_private_reply$"
+                    )
+                ],
                 states={
                     ADD_PRIVATE_TEXT: [
-                        MessageHandler(filters.TEXT, self.reply_handlers.add_private_reply_text)
+                        MessageHandler(
+                            filters.TEXT & ~filters.COMMAND,
+                            self.reply_handlers.add_private_reply_text
+                        )
                     ]
                 },
                 fallbacks=[CommandHandler("cancel", self.cancel)]
             )
         )
 
-        # RANDOM REPLY
+        # ===== RANDOM REPLY =====
+
         application.add_handler(
             ConversationHandler(
-                entry_points=[CallbackQueryHandler(
-                    self.reply_handlers.add_random_reply_start,
-                    pattern="^add_random_reply$"
-                )],
+                entry_points=[
+                    CallbackQueryHandler(
+                        self.reply_handlers.add_random_reply_start,
+                        pattern="^add_random_reply$"
+                    )
+                ],
                 states={
                     ADD_RANDOM_REPLY: [
-                        MessageHandler(filters.TEXT, self.reply_handlers.add_random_reply_text),
-                        MessageHandler(filters.PHOTO, self.reply_handlers.add_random_reply_media)
+                        MessageHandler(
+                            filters.TEXT & ~filters.COMMAND,
+                            self.reply_handlers.add_random_reply_text
+                        ),
+                        MessageHandler(
+                            filters.PHOTO,
+                            self.reply_handlers.add_random_reply_media
+                        )
                     ]
                 },
                 fallbacks=[CommandHandler("cancel", self.cancel)]
             )
         )
 
-        # MAIN ROUTER
+        # ===== MAIN CALLBACK ROUTER =====
+
         application.add_handler(
             CallbackQueryHandler(self.handle_callback)
         )
