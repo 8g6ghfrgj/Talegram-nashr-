@@ -1,4 +1,6 @@
 import logging
+import asyncio
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -11,45 +13,22 @@ from telegram.ext import (
 
 logger = logging.getLogger(__name__)
 
-# استيراد حالات المحادثة من config.py مع معالجة الأخطاء
+# استيراد حالات المحادثة من config.py
 try:
     from config import (
-        ADD_ACCOUNT,
-        ADD_AD_TYPE,
-        ADD_AD_TEXT,
-        ADD_AD_MEDIA,
-        ADD_GROUP,
-        ADD_PRIVATE_REPLY,
-        ADD_ADMIN,
-        ADD_RANDOM_REPLY,
-        ADD_PRIVATE_TEXT,
-        ADD_GROUP_TEXT,
-        ADD_GROUP_PHOTO,
-        ADD_GROUP_TEXT_REPLY,
-        ADD_GROUP_PHOTO_REPLY,
-        ADD_GROUP_PHOTO_MEDIA,
-        ADD_RANDOM_MEDIA,
-        AD_TYPES,
-        MESSAGES,
-        BUTTONS,
-        DELAY_SETTINGS,
-        OWNER_ID
+        ADD_ACCOUNT, ADD_AD_TYPE, ADD_AD_TEXT, ADD_AD_MEDIA,
+        ADD_GROUP, ADD_PRIVATE_REPLY, ADD_ADMIN,
+        ADD_RANDOM_REPLY, ADD_PRIVATE_TEXT, ADD_GROUP_TEXT,
+        ADD_GROUP_PHOTO, ADD_GROUP_TEXT_REPLY, 
+        ADD_GROUP_PHOTO_REPLY, ADD_GROUP_PHOTO_MEDIA,
+        ADD_RANDOM_MEDIA, AD_TYPES, MESSAGES
     )
-except ImportError as e:
-    logger.error(f"خطأ في استيراد المتغيرات من config.py: {e}")
-    
+except ImportError:
     # تعريف قيم افتراضية في حالة فشل الاستيراد
     (
-        ADD_ACCOUNT,
-        ADD_AD_TYPE,
-        ADD_AD_TEXT,
-        ADD_AD_MEDIA,
-        ADD_GROUP,
-        ADD_PRIVATE_REPLY,
-        ADD_ADMIN,
-        ADD_RANDOM_REPLY,
-        ADD_PRIVATE_TEXT,
-        ADD_GROUP_TEXT,
+        ADD_ACCOUNT, ADD_AD_TYPE, ADD_AD_TEXT, ADD_AD_MEDIA,
+        ADD_GROUP, ADD_PRIVATE_REPLY, ADD_ADMIN,
+        ADD_RANDOM_REPLY, ADD_PRIVATE_TEXT, ADD_GROUP_TEXT,
         ADD_GROUP_PHOTO
     ) = range(11)
     
@@ -67,40 +46,11 @@ except ImportError as e:
     MESSAGES = {
         'start': "🚀 لوحة تحكم البوت الفعلي",
         'unauthorized': "❌ ليس لديك صلاحية للوصول إلى هذا البوت.",
-        'owner_only': "❌ فقط المالك الرئيسي يستطيع تنفيذ هذا الأمر!",
         'no_accounts': "❌ لا توجد حسابات نشطة!",
         'no_ads': "❌ لا توجد إعلانات!",
-        'ad_added': "✅ تم حفظ الإعلان بنجاح!",
-        'account_added': "✅ تم إضافة الحساب بنجاح!",
-        'group_added': "✅ تم إضافة المجموعة بنجاح!",
-        'admin_added': "✅ تم إضافة المشرف بنجاح!"
+        'ad_added': "✅ **تم حفظ الإعلان بنجاح!**",
+        'account_added': "✅ **تم إضافة الحساب بنجاح!**"
     }
-    
-    BUTTONS = {
-        'main_menu': {
-            'accounts': "👥 إدارة الحسابات",
-            'ads': "📢 إدارة الإعلانات",
-            'groups': "👥 إدارة المجموعات",
-            'replies': "💬 إدارة الردود",
-            'admins': "👨‍💼 إدارة المشرفين",
-            'start_publishing': "🚀 بدء النشر",
-            'stop_publishing': "⏹️ إيقاف النشر"
-        },
-        'back': "🔙 رجوع",
-        'cancel': "❌ إلغاء"
-    }
-    
-    DELAY_SETTINGS = {
-        'publishing': {
-            'between_ads': 0.1,
-            'between_groups': 0.2,
-            'between_cycles': 30,
-            'group_publishing_delay': 60
-        }
-    }
-    
-    OWNER_ID = 8148890042
-
 
 class ConversationHandlers:
     def __init__(self, db, manager, admin_handlers, account_handlers,
@@ -112,6 +62,7 @@ class ConversationHandlers:
         self.ad_handlers = ad_handlers
         self.group_handlers = group_handlers
         self.reply_handlers = reply_handlers
+        self.active_conversations = {}  # لتتبع المحادثات النشطة
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """معالجة جميع الأزرار العامة"""
@@ -128,10 +79,16 @@ class ConversationHandlers:
         
         # التحقق من صلاحية المستخدم
         if not self.db.is_admin(user_id):
-            await query.edit_message_text(MESSAGES['unauthorized'])
+            await query.edit_message_text("❌ ليس لديك صلاحية للوصول إلى هذا البوت.")
             return
         
         logger.info(f"معالجة الزر: {data} للمستخدم: {user_id}")
+        
+        # التحقق من وجود محادثة نشطة
+        if user_id in self.active_conversations:
+            if data not in ["back_to_", "cancel"]:
+                await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                return
         
         try:
             # معالجة أزرار الرجوع أولاً
@@ -143,6 +100,12 @@ class ConversationHandlers:
             elif data == "manage_accounts":
                 await self.account_handlers.manage_accounts(query, context)
             elif data == "add_account":
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                    return
+                # وضع علامة أن المستخدم في محادثة إضافة حساب
+                self.active_conversations[user_id] = "add_account"
                 await self.account_handlers.add_account_start(query, context)
             elif data == "show_accounts":
                 await self.account_handlers.show_accounts(query, context)
@@ -153,20 +116,31 @@ class ConversationHandlers:
                 except (ValueError, IndexError) as e:
                     logger.error(f"خطأ في استخراج account_id من {data}: {e}")
                     await query.edit_message_text("❌ خطأ في معالجة الأمر!")
+            elif data.startswith("toggle_account_"):
+                try:
+                    account_id = int(data.replace("toggle_account_", ""))
+                    await self.account_handlers.toggle_account_status(query, context, account_id)
+                except (ValueError, IndexError) as e:
+                    logger.error(f"خطأ في استخراج account_id من {data}: {e}")
+                    await query.edit_message_text("❌ خطأ في معالجة الأمر!")
             
             # أزرار إدارة الإعلانات
             elif data == "manage_ads":
                 await self.ad_handlers.manage_ads(query, context)
             elif data == "add_ad":
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                    return
                 # عرض خيارات أنواع الإعلانات
                 keyboard = [
                     [
-                        InlineKeyboardButton(BUTTONS['ad_types']['text'], callback_data="ad_type_text"),
-                        InlineKeyboardButton(BUTTONS['ad_types']['photo'], callback_data="ad_type_photo")
+                        InlineKeyboardButton("📝 إعلان نصي", callback_data="ad_type_text"),
+                        InlineKeyboardButton("🖼️ إعلان بصورة", callback_data="ad_type_photo")
                     ],
                     [
-                        InlineKeyboardButton(BUTTONS['ad_types']['contact'], callback_data="ad_type_contact"),
-                        InlineKeyboardButton(BUTTONS['back'], callback_data="back_to_ads")
+                        InlineKeyboardButton("📞 إعلان جهة اتصال", callback_data="ad_type_contact"),
+                        InlineKeyboardButton("🔙 رجوع", callback_data="back_to_ads")
                     ]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
@@ -190,11 +164,24 @@ class ConversationHandlers:
                 except (ValueError, IndexError) as e:
                     logger.error(f"خطأ في استخراج ad_id من {data}: {e}")
                     await query.edit_message_text("❌ خطأ في معالجة الأمر!")
+            elif data.startswith("toggle_ad_"):
+                try:
+                    ad_id = int(data.replace("toggle_ad_", ""))
+                    await self.ad_handlers.toggle_ad_status(query, context, ad_id)
+                except (ValueError, IndexError) as e:
+                    logger.error(f"خطأ في استخراج ad_id من {data}: {e}")
+                    await query.edit_message_text("❌ خطأ في معالجة الأمر!")
             
             # أزرار إدارة المجموعات
             elif data == "manage_groups":
                 await self.group_handlers.manage_groups(query, context)
             elif data == "add_group":
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                    return
+                # وضع علامة أن المستخدم في محادثة إضافة مجموعة
+                self.active_conversations[user_id] = "add_group"
                 await self.group_handlers.add_group_start(query, context)
             elif data == "show_groups":
                 await self.group_handlers.show_groups(query, context)
@@ -202,15 +189,35 @@ class ConversationHandlers:
                 await self.group_handlers.start_join_groups(query, context)
             elif data == "stop_join_groups":
                 await self.group_handlers.stop_join_groups(query, context)
+            elif data.startswith("delete_group_"):
+                try:
+                    group_id = int(data.replace("delete_group_", ""))
+                    await self.group_handlers.delete_group(query, context, group_id)
+                except (ValueError, IndexError) as e:
+                    logger.error(f"خطأ في استخراج group_id من {data}: {e}")
+                    await query.edit_message_text("❌ خطأ في معالجة الأمر!")
+            elif data.startswith("toggle_group_"):
+                try:
+                    group_id = int(data.replace("toggle_group_", ""))
+                    await self.group_handlers.toggle_group_status(query, context, group_id)
+                except (ValueError, IndexError) as e:
+                    logger.error(f"خطأ في استخراج group_id من {data}: {e}")
+                    await query.edit_message_text("❌ خطأ في معالجة الأمر!")
             
             # أزرار إدارة المشرفين
             elif data == "manage_admins":
                 await self.admin_handlers.manage_admins(query, context)
             elif data == "add_admin":
-                # التحقق إذا كان المستخدم هو المالك
-                if user_id != OWNER_ID:
-                    await query.edit_message_text(MESSAGES['owner_only'].format(OWNER_ID))
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
                     return
+                # التحقق من صلاحية المستخدم (فقط المالك يمكنه إضافة مشرفين)
+                if user_id != 8148890042:  # المالك الرئيسي
+                    await query.edit_message_text("❌ فقط المالك الرئيسي يمكنه إضافة مشرفين!")
+                    return
+                # وضع علامة أن المستخدم في محادثة إضافة مشرف
+                self.active_conversations[user_id] = "add_admin"
                 await self.admin_handlers.add_admin_start(query, context)
             elif data == "show_admins":
                 await self.admin_handlers.show_admins(query, context)
@@ -219,23 +226,23 @@ class ConversationHandlers:
             elif data == "export_data":
                 await self.admin_handlers.export_data(query, context)
             elif data.startswith("delete_admin_"):
-                # التحقق إذا كان المستخدم هو المالك
-                if user_id != OWNER_ID:
-                    await query.edit_message_text(MESSAGES['owner_only'].format(OWNER_ID))
-                    return
                 try:
                     admin_id = int(data.replace("delete_admin_", ""))
+                    # التحقق من صلاحية المستخدم (فقط المالك يمكنه حذف مشرفين)
+                    if user_id != 8148890042:  # المالك الرئيسي
+                        await query.edit_message_text("❌ فقط المالك الرئيسي يمكنه حذف مشرفين!")
+                        return
                     await self.admin_handlers.delete_admin(query, context, admin_id)
                 except (ValueError, IndexError) as e:
                     logger.error(f"خطأ في استخراج admin_id من {data}: {e}")
                     await query.edit_message_text("❌ خطأ في معالجة الأمر!")
             elif data.startswith("toggle_admin_"):
-                # التحقق إذا كان المستخدم هو المالك
-                if user_id != OWNER_ID:
-                    await query.edit_message_text(MESSAGES['owner_only'].format(OWNER_ID))
-                    return
                 try:
                     admin_id = int(data.replace("toggle_admin_", ""))
+                    # التحقق من صلاحية المستخدم (فقط المالك يمكنه تعديل صلاحيات مشرفين)
+                    if user_id != 8148890042:  # المالك الرئيسي
+                        await query.edit_message_text("❌ فقط المالك الرئيسي يمكنه تعديل صلاحيات المشرفين!")
+                        return
                     await self.admin_handlers.toggle_admin_status(query, context, admin_id)
                 except (ValueError, IndexError) as e:
                     logger.error(f"خطأ في استخراج admin_id من {data}: {e}")
@@ -251,12 +258,36 @@ class ConversationHandlers:
             elif data == "show_replies":
                 await self.reply_handlers.show_replies_menu(query, context)
             elif data == "add_private_reply":
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                    return
+                # وضع علامة أن المستخدم في محادثة إضافة رد خاص
+                self.active_conversations[user_id] = "add_private_reply"
                 await self.reply_handlers.add_private_reply_start(query, context)
             elif data == "add_group_text_reply":
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                    return
+                # وضع علامة أن المستخدم في محادثة إضافة رد نصي
+                self.active_conversations[user_id] = "add_group_text_reply"
                 await self.reply_handlers.add_group_text_reply_start(query, context)
             elif data == "add_group_photo_reply":
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                    return
+                # وضع علامة أن المستخدم في محادثة إضافة رد بصورة
+                self.active_conversations[user_id] = "add_group_photo_reply"
                 await self.reply_handlers.add_group_photo_reply_start(query, context)
             elif data == "add_random_reply":
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                    return
+                # وضع علامة أن المستخدم في محادثة إضافة رد عشوائي
+                self.active_conversations[user_id] = "add_random_reply"
                 await self.reply_handlers.add_random_reply_start(query, context)
             
             # أزرار حذف الردود
@@ -328,9 +359,15 @@ class ConversationHandlers:
             
             # أزرار أنواع الإعلانات
             elif data in ["ad_type_text", "ad_type_photo", "ad_type_contact"]:
+                # التحقق من وجود محادثة نشطة
+                if user_id in self.active_conversations:
+                    await query.edit_message_text("⚠️ لديك محادثة نشطة بالفعل. أكملها أو ألغها أولاً.")
+                    return
+                
                 # حفظ نوع الإعلان في context
                 ad_type = data.replace("ad_type_", "")
                 context.user_data['ad_type'] = ad_type
+                self.active_conversations[user_id] = f"add_ad_{ad_type}"
                 
                 # عرض رسالة بناءً على النوع
                 if ad_type == "text":
@@ -342,7 +379,7 @@ class ConversationHandlers:
                 else:
                     message = "📢 **إضافة إعلان**\n\nأرسل نص الإعلان:"
                 
-                keyboard = [[InlineKeyboardButton(BUTTONS['cancel'], callback_data="back_to_ads")]]
+                keyboard = [[InlineKeyboardButton("🔙 إلغاء", callback_data="cancel")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await query.edit_message_text(
@@ -360,10 +397,13 @@ class ConversationHandlers:
                     "❌ أمر غير معروف!\n"
                     "استخدم الأزرار المتاحة فقط."
                 )
-                return ConversationHandler.END
                 
         except Exception as e:
             logger.error(f"خطأ في معالجة الزر {data}: {e}", exc_info=True)
+            # إزالة المستخدم من المحادثات النشطة في حالة حدوث خطأ
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
             try:
                 await query.edit_message_text(
                     "❌ حدث خطأ غير متوقع في النظام.\n"
@@ -376,11 +416,16 @@ class ConversationHandlers:
                     text="❌ حدث خطأ غير متوقع في النظام.\n"
                          "الرجاء المحاولة مرة أخرى أو الاتصال بالمطور."
                 )
-            return ConversationHandler.END
 
     async def handle_back_buttons(self, query, context, data):
         """معالجة أزرار الرجوع"""
         try:
+            user_id = query.from_user.id
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
             if data == "back_to_main":
                 await self.show_main_menu(query, context)
             elif data == "back_to_accounts":
@@ -397,16 +442,8 @@ class ConversationHandlers:
                 await self.reply_handlers.manage_private_replies(query, context)
             elif data == "back_to_group_replies":
                 await self.reply_handlers.manage_group_replies(query, context)
-            elif data == "back_to_show_admins":
-                await self.admin_handlers.show_admins(query, context)
-            elif data == "back_to_show_ads":
-                await self.ad_handlers.show_ads(query, context)
-            elif data == "back_to_show_accounts":
-                await self.account_handlers.show_accounts(query, context)
-            elif data == "back_to_show_groups":
-                await self.group_handlers.show_groups(query, context)
-            elif data == "back_to_show_replies":
-                await self.reply_handlers.show_replies_menu(query, context)
+            elif data == "back_to_stats":
+                await self.admin_handlers.show_system_stats(query, context)
             else:
                 await self.show_main_menu(query, context)
         except Exception as e:
@@ -418,23 +455,40 @@ class ConversationHandlers:
         user_id = query.from_user.id
         
         if not self.db.is_admin(user_id):
-            await query.edit_message_text(MESSAGES['unauthorized'])
+            await query.edit_message_text("❌ ليس لديك صلاحية للوصول إلى هذا البوت.")
             return
         
+        # إزالة المستخدم من المحادثات النشطة
+        if user_id in self.active_conversations:
+            del self.active_conversations[user_id]
+        
+        # الحصول على إحصائيات سريعة
+        accounts_count = len(self.db.get_all_accounts(user_id))
+        ads_count = len(self.db.get_ads(user_id))
+        groups_count = len(self.db.get_groups(user_id))
+        
         keyboard = [
-            [InlineKeyboardButton(BUTTONS['main_menu']['accounts'], callback_data="manage_accounts")],
-            [InlineKeyboardButton(BUTTONS['main_menu']['ads'], callback_data="manage_ads")],
-            [InlineKeyboardButton(BUTTONS['main_menu']['groups'], callback_data="manage_groups")],
-            [InlineKeyboardButton(BUTTONS['main_menu']['replies'], callback_data="manage_replies")],
-            [InlineKeyboardButton(BUTTONS['main_menu']['admins'], callback_data="manage_admins")],
-            [InlineKeyboardButton(BUTTONS['main_menu']['start_publishing'], callback_data="start_publishing")],
-            [InlineKeyboardButton(BUTTONS['main_menu']['stop_publishing'], callback_data="stop_publishing")]
+            [InlineKeyboardButton("👥 إدارة الحسابات", callback_data="manage_accounts")],
+            [InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="manage_ads")],
+            [InlineKeyboardButton("👥 إدارة المجموعات", callback_data="manage_groups")],
+            [InlineKeyboardButton("💬 إدارة الردود", callback_data="manage_replies")],
+            [InlineKeyboardButton("👨‍💼 إدارة المشرفين", callback_data="manage_admins")],
+            [InlineKeyboardButton("🚀 بدء النشر", callback_data="start_publishing")],
+            [InlineKeyboardButton("⏹️ إيقاف النشر", callback_data="stop_publishing")]
         ]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            MESSAGES['start'],
+            f"🚀 **لوحة تحكم البوت الفعلي**\n\n"
+            f"📊 **الإحصائيات:**\n"
+            f"👥 الحسابات: {accounts_count}\n"
+            f"📢 الإعلانات: {ads_count}\n"
+            f"👥 المجموعات: {groups_count}\n\n"
+            f"⚡ النشر بأقصى سرعة ممكنة\n"
+            f"⚡ الردود التلقائية بأقصى سرعة\n"
+            f"⚡ الانضمام للمجموعات بأقصى سرعة\n\n"
+            "اختر الإجراء الذي تريد تنفيذه:",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -447,10 +501,11 @@ class ConversationHandlers:
             # التحقق من وجود حسابات
             accounts = self.db.get_active_publishing_accounts(admin_id)
             if not accounts:
-                keyboard = [[InlineKeyboardButton(BUTTONS['back'], callback_data="back_to_main")]]
+                keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(
-                    MESSAGES['no_accounts'] + "\n\nيجب إضافة حسابات أولاً قبل بدء النشر.",
+                    "❌ لا توجد حسابات نشطة!\n\n"
+                    "يجب إضافة حسابات أولاً قبل بدء النشر.",
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
@@ -459,10 +514,24 @@ class ConversationHandlers:
             # التحقق من وجود إعلانات
             ads = self.db.get_ads(admin_id)
             if not ads:
-                keyboard = [[InlineKeyboardButton(BUTTONS['back'], callback_data="back_to_main")]]
+                keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(
-                    MESSAGES['no_ads'] + "\n\nيجب إضافة إعلانات أولاً قبل بدء النشر.",
+                    "❌ لا توجد إعلانات!\n\n"
+                    "يجب إضافة إعلانات أولاً قبل بدء النشر.",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # التحقق من وجود مجموعات
+            groups = self.db.get_groups(admin_id)
+            if not groups:
+                keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    "❌ لا توجد مجموعات!\n\n"
+                    "يجب إضافة مجموعات أولاً قبل بدء النشر.",
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
@@ -470,11 +539,12 @@ class ConversationHandlers:
             
             if self.manager.start_publishing(admin_id):
                 keyboard = [
-                    [InlineKeyboardButton(BUTTONS['main_menu']['stop_publishing'], callback_data="stop_publishing")],
+                    [InlineKeyboardButton("⏹️ إيقاف النشر", callback_data="stop_publishing")],
                     [InlineKeyboardButton("💬 بدء الرد في الخاص", callback_data="start_private_reply")],
                     [InlineKeyboardButton("👥 بدء الرد في القروبات", callback_data="start_group_reply")],
                     [InlineKeyboardButton("🎲 بدء الرد العشوائي", callback_data="start_random_reply")],
-                    [InlineKeyboardButton(BUTTONS['back'], callback_data="back_to_main")]
+                    [InlineKeyboardButton("📊 الإحصائيات", callback_data="ad_stats")],
+                    [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
@@ -482,10 +552,11 @@ class ConversationHandlers:
                     "🚀 **تم بدء النشر بأقصى سرعة!**\n\n"
                     f"✅ **عدد الحسابات:** {len(accounts)}\n"
                     f"✅ **عدد الإعلانات:** {len(ads)}\n"
-                    f"⏱️ **تأخير نشر القروبات:** {DELAY_SETTINGS['publishing']['group_publishing_delay']} ثانية\n"
-                    f"⚡ **بين الإعلانات:** {DELAY_SETTINGS['publishing']['between_ads']} ثانية\n"
-                    f"⚡ **بين المجموعات:** {DELAY_SETTINGS['publishing']['between_groups']} ثانية\n"
-                    f"⚡ **بين الدورات:** {DELAY_SETTINGS['publishing']['between_cycles']} ثانية\n\n"
+                    f"✅ **عدد المجموعات:** {len(groups)}\n"
+                    f"⏱️ **تأخير نشر القروبات:** 60 ثانية\n"
+                    f"⚡ **بين الإعلانات:** 0.1 ثانية\n"
+                    f"⚡ **بين المجموعات:** 0.2 ثانية\n"
+                    f"⚡ **بين الدورات:** 30 ثانية\n\n"
                     "سيبدأ البوت بالنشر في جميع المجموعات الآن مع تأمين الحسابات.",
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
@@ -507,7 +578,7 @@ class ConversationHandlers:
             admin_id = query.from_user.id
             
             if self.manager.stop_publishing(admin_id):
-                keyboard = [[InlineKeyboardButton(BUTTONS['back'], callback_data="back_to_main")]]
+                keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text("⏹️ تم إيقاف النشر!", reply_markup=reply_markup)
                 logger.info(f"⏹️ توقف النشر للمشرف {admin_id}")
@@ -533,13 +604,13 @@ class ConversationHandlers:
                 ADD_ACCOUNT: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.account_handlers.add_account_session
+                        self.add_account_session
                     )
                 ]
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel, pattern="^back_to_")
+                CommandHandler("cancel", self.cancel_conversation),
+                CallbackQueryHandler(self.cancel_conversation, pattern="^cancel$")
             ]
         )
         application.add_handler(add_account_conv)
@@ -559,12 +630,13 @@ class ConversationHandlers:
                 ],
                 ADD_AD_MEDIA: [
                     MessageHandler(filters.PHOTO, self.process_ad_media),
-                    MessageHandler(filters.CONTACT, self.process_ad_media)
+                    MessageHandler(filters.CONTACT, self.process_ad_media),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.process_ad_media_text)
                 ]
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel, pattern="^back_to_")
+                CommandHandler("cancel", self.cancel_conversation),
+                CallbackQueryHandler(self.cancel_conversation, pattern="^cancel$")
             ]
         )
         application.add_handler(add_ad_conv)
@@ -579,13 +651,13 @@ class ConversationHandlers:
                 ADD_GROUP: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.group_handlers.add_group_link
+                        self.add_group_link
                     )
                 ]
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel, pattern="^back_to_")
+                CommandHandler("cancel", self.cancel_conversation),
+                CallbackQueryHandler(self.cancel_conversation, pattern="^cancel$")
             ]
         )
         application.add_handler(add_group_conv)
@@ -600,13 +672,13 @@ class ConversationHandlers:
                 ADD_ADMIN: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.admin_handlers.add_admin_id
+                        self.add_admin_id
                     )
                 ]
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel, pattern="^back_to_")
+                CommandHandler("cancel", self.cancel_conversation),
+                CallbackQueryHandler(self.cancel_conversation, pattern="^cancel$")
             ]
         )
         application.add_handler(add_admin_conv)
@@ -621,13 +693,13 @@ class ConversationHandlers:
                 ADD_PRIVATE_TEXT: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.reply_handlers.add_private_reply_text
+                        self.add_private_reply_text
                     )
                 ]
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel, pattern="^back_to_")
+                CommandHandler("cancel", self.cancel_conversation),
+                CallbackQueryHandler(self.cancel_conversation, pattern="^cancel$")
             ]
         )
         application.add_handler(private_reply_conv)
@@ -642,19 +714,19 @@ class ConversationHandlers:
                 ADD_GROUP_TEXT: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.reply_handlers.add_group_text_reply_trigger
+                        self.add_group_text_reply_trigger
                     )
                 ],
                 ADD_GROUP_TEXT_REPLY: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.reply_handlers.add_group_text_reply_text
+                        self.add_group_text_reply_text
                     )
                 ]
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel, pattern="^back_to_")
+                CommandHandler("cancel", self.cancel_conversation),
+                CallbackQueryHandler(self.cancel_conversation, pattern="^cancel$")
             ]
         )
         application.add_handler(group_text_reply_conv)
@@ -669,25 +741,25 @@ class ConversationHandlers:
                 ADD_GROUP_PHOTO: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.reply_handlers.add_group_photo_reply_trigger
+                        self.add_group_photo_reply_trigger
                     )
                 ],
                 ADD_GROUP_PHOTO_REPLY: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.reply_handlers.add_group_photo_reply_text
+                        self.add_group_photo_reply_text
                     )
                 ],
                 ADD_GROUP_PHOTO_MEDIA: [
                     MessageHandler(
                         filters.PHOTO,
-                        self.reply_handlers.add_group_photo_reply_photo
+                        self.add_group_photo_reply_photo
                     )
                 ]
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel, pattern="^back_to_")
+                CommandHandler("cancel", self.cancel_conversation),
+                CallbackQueryHandler(self.cancel_conversation, pattern="^cancel$")
             ]
         )
         application.add_handler(group_photo_reply_conv)
@@ -702,23 +774,65 @@ class ConversationHandlers:
                 ADD_RANDOM_REPLY: [
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
-                        self.reply_handlers.add_random_reply_text
+                        self.add_random_reply_text
                     )
                 ],
                 ADD_RANDOM_MEDIA: [
                     MessageHandler(
                         filters.PHOTO,
-                        self.reply_handlers.add_random_reply_media
+                        self.add_random_reply_media
                     ),
-                    CommandHandler("skip", self.reply_handlers.skip_random_reply_media)
+                    CommandHandler("skip", self.skip_random_reply_media)
                 ]
             },
             fallbacks=[
-                CommandHandler("cancel", self.cancel),
-                CallbackQueryHandler(self.cancel, pattern="^back_to_")
+                CommandHandler("cancel", self.cancel_conversation),
+                CallbackQueryHandler(self.cancel_conversation, pattern="^cancel$")
             ]
         )
         application.add_handler(random_reply_conv)
+
+    # ============ دوال معالجة المحادثات ============
+
+    async def add_account_session(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة جلسة حساب"""
+        try:
+            session_string = update.message.text
+            user_id = update.message.from_user.id
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            # حفظ الحساب في قاعدة البيانات
+            account_id = self.db.add_account(user_id, session_string)
+            
+            if account_id:
+                keyboard = [
+                    [InlineKeyboardButton("👥 عرض الحسابات", callback_data="show_accounts")],
+                    [InlineKeyboardButton("➕ إضافة حساب آخر", callback_data="add_account")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ **تم إضافة الحساب بنجاح!**\n\n"
+                    f"🆔 **رقم الحساب:** `{account_id}`\n"
+                    f"📱 **رقم الهاتف:** {session_string[:20]}...\n"
+                    f"📅 **تاريخ الإضافة:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"تم إضافة حساب جديد رقم {account_id} للمستخدم {user_id}")
+            else:
+                await update.message.reply_text("❌ فشل في إضافة الحساب! تأكد من صحة الجلسة.")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"خطأ في إضافة الحساب: {e}")
+            await update.message.reply_text("❌ حدث خطأ في إضافة الحساب!")
+            return ConversationHandler.END
 
     async def process_ad_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """معالجة نص الإعلان"""
@@ -735,10 +849,10 @@ class ConversationHandlers:
             
             if ad_type == "text":
                 # إعلان نصي - حفظ مباشرة
-                return await self.ad_handlers.add_ad_text(update, context)
+                return await self.save_ad(update, context)
             elif ad_type == "photo":
                 # إعلان مع صورة - طلب الصورة
-                keyboard = [[InlineKeyboardButton(BUTTONS['cancel'], callback_data="back_to_ads")]]
+                keyboard = [[InlineKeyboardButton("🔙 إلغاء", callback_data="cancel")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
@@ -750,7 +864,7 @@ class ConversationHandlers:
                 return ADD_AD_MEDIA
             elif ad_type == "contact":
                 # إعلان مع جهة اتصال - طلب جهة الاتصال
-                keyboard = [[InlineKeyboardButton(BUTTONS['cancel'], callback_data="back_to_ads")]]
+                keyboard = [[InlineKeyboardButton("🔙 إلغاء", callback_data="cancel")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await update.message.reply_text(
@@ -770,10 +884,10 @@ class ConversationHandlers:
             return ConversationHandler.END
 
     async def process_ad_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """معالجة وسائط الإعلان (صورة أو جهة اتصال)"""
+        """معالجة وسائط الإعلان (صورة)"""
         try:
             # الحصول على نوع الإعلان
-            ad_type = context.user_data.get('ad_type', 'text')
+            ad_type = context.user_data.get('ad_type', 'photo')
             
             if ad_type == "photo" and update.message.photo:
                 # حفظ الصورة
@@ -781,240 +895,495 @@ class ConversationHandlers:
                 context.user_data['ad_photo_id'] = photo.file_id
                 
                 # حفظ الإعلان في قاعدة البيانات
-                return await self.ad_handlers.save_ad(update, context)
-                
-            elif ad_type == "contact" and update.message.contact:
-                # حفظ جهة الاتصال
-                contact = update.message.contact
-                context.user_data['ad_contact'] = {
-                    'phone_number': contact.phone_number,
-                    'first_name': contact.first_name,
-                    'last_name': contact.last_name or ''
-                }
-                
-                # حفظ الإعلان في قاعدة البيانات
-                return await self.ad_handlers.save_ad(update, context)
+                return await self.save_ad(update, context)
             else:
-                await update.message.reply_text("❌ نوع وسائط غير مدعوم!")
-                return ConversationHandler.END
+                await update.message.reply_text("❌ يرجى إرسال صورة صحيحة!")
+                return ADD_AD_MEDIA
                 
         except Exception as e:
             logger.error(f"خطأ في معالجة وسائط الإعلان: {e}")
-            await update.message.reply_text("❌ حدث خطأ في معالجة الوسائط!")
+            await update.message.reply_text("❌ حدث خطأ في معالجة الصورة!")
             return ConversationHandler.END
 
-    async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """إلغاء الأمر الحالي"""
+    async def process_ad_media_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة وسائط الإعلان (جهة اتصال كنص)"""
         try:
-            # تنظيف بيانات المستخدم
+            # الحصول على نوع الإعلان
+            ad_type = context.user_data.get('ad_type', 'contact')
+            
+            if ad_type == "contact":
+                # يمكن معالجة نص جهة الاتصال هنا
+                contact_text = update.message.text
+                context.user_data['ad_contact_text'] = contact_text
+                
+                # حفظ الإعلان في قاعدة البيانات
+                return await self.save_ad(update, context)
+            else:
+                await update.message.reply_text("❌ هذا النوع لا يدعم النص!")
+                return ADD_AD_MEDIA
+                
+        except Exception as e:
+            logger.error(f"خطأ في معالجة نص جهة الاتصال: {e}")
+            await update.message.reply_text("❌ حدث خطأ في معالجة جهة الاتصال!")
+            return ConversationHandler.END
+
+    async def save_ad(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """حفظ الإعلان النهائي في قاعدة البيانات"""
+        try:
+            user_id = update.message.from_user.id if update.message else context.user_data.get('user_id')
+            text = context.user_data.get('ad_text', '')
+            ad_type = context.user_data.get('ad_type', 'text')
+            
+            media_id = None
+            contact_info = None
+            
+            if ad_type == 'photo':
+                media_id = context.user_data.get('ad_photo_id')
+            elif ad_type == 'contact':
+                # يمكن استخدام نص جهة الاتصال أو بيانات Contact
+                contact_info = context.user_data.get('ad_contact_text', 'جهة اتصال')
+            
+            # حفظ الإعلان في قاعدة البيانات
+            ad_id = self.db.add_ad(
+                user_id=user_id,
+                text=text,
+                ad_type=ad_type,
+                media_id=media_id,
+                contact_info=contact_info
+            )
+            
+            # تنظيف context
             context.user_data.clear()
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            keyboard = [
+                [InlineKeyboardButton("📢 عرض الإعلانات", callback_data="show_ads")],
+                [InlineKeyboardButton("➕ إضافة إعلان آخر", callback_data="add_ad")],
+                [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ **تم حفظ الإعلان بنجاح!**\n\n"
+                f"🆔 **رقم الإعلان:** `{ad_id}`\n"
+                f"📝 **النوع:** {AD_TYPES.get(ad_type, ad_type)}\n"
+                f"📝 **النص:** {text[:100]}...\n"
+                f"📅 **تاريخ الإضافة:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            
+            logger.info(f"تم إضافة إعلان جديد رقم {ad_id} للمستخدم {user_id}")
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"خطأ في حفظ الإعلان: {e}")
+            await update.message.reply_text("❌ حدث خطأ في حفظ الإعلان!")
+            return ConversationHandler.END
+
+    async def add_group_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة رابط مجموعة"""
+        try:
+            group_link = update.message.text
+            user_id = update.message.from_user.id
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            # حفظ المجموعة في قاعدة البيانات
+            group_id = self.db.add_group(user_id, group_link)
+            
+            if group_id:
+                keyboard = [
+                    [InlineKeyboardButton("👥 عرض المجموعات", callback_data="show_groups")],
+                    [InlineKeyboardButton("➕ إضافة مجموعة أخرى", callback_data="add_group")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ **تم إضافة المجموعة بنجاح!**\n\n"
+                    f"🆔 **رقم المجموعة:** `{group_id}`\n"
+                    f"🔗 **الرابط:** {group_link}\n"
+                    f"📅 **تاريخ الإضافة:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"تم إضافة مجموعة جديدة رقم {group_id} للمستخدم {user_id}")
+            else:
+                await update.message.reply_text("❌ فشل في إضافة المجموعة! تأكد من صحة الرابط.")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"خطأ في إضافة المجموعة: {e}")
+            await update.message.reply_text("❌ حدث خطأ في إضافة المجموعة!")
+            return ConversationHandler.END
+
+    async def add_admin_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة آيدي مشرف"""
+        try:
+            admin_id_text = update.message.text
+            user_id = update.message.from_user.id
+            
+            # التحقق من أن المستخدم هو المالك
+            if user_id != 8148890042:
+                await update.message.reply_text("❌ فقط المالك الرئيسي يمكنه إضافة مشرفين!")
+                return ConversationHandler.END
+            
+            try:
+                new_admin_id = int(admin_id_text)
+            except ValueError:
+                await update.message.reply_text("❌ يرجى إدخال آيدي صحيح (أرقام فقط)!")
+                return ADD_ADMIN
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            # حفظ المشرف في قاعدة البيانات
+            admin_db_id = self.db.add_admin(new_admin_id)
+            
+            if admin_db_id:
+                keyboard = [
+                    [InlineKeyboardButton("👨‍💼 عرض المشرفين", callback_data="show_admins")],
+                    [InlineKeyboardButton("➕ إضافة مشرف آخر", callback_data="add_admin")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ **تم إضافة المشرف بنجاح!**\n\n"
+                    f"🆔 **رقم المشرف:** `{admin_db_id}`\n"
+                    f"👤 **آيدي المستخدم:** {new_admin_id}\n"
+                    f"📅 **تاريخ الإضافة:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"تم إضافة مشرف جديد رقم {admin_db_id} للمستخدم {new_admin_id}")
+            else:
+                await update.message.reply_text("❌ فشل في إضافة المشرف!")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"خطأ في إضافة المشرف: {e}")
+            await update.message.reply_text("❌ حدث خطأ في إضافة المشرف!")
+            return ConversationHandler.END
+
+    async def add_private_reply_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة رد خاص"""
+        try:
+            reply_text = update.message.text
+            user_id = update.message.from_user.id
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            # حفظ الرد في قاعدة البيانات
+            reply_id = self.db.add_private_reply(user_id, reply_text)
+            
+            if reply_id:
+                keyboard = [
+                    [InlineKeyboardButton("💬 عرض الردود", callback_data="show_replies")],
+                    [InlineKeyboardButton("➕ إضافة رد آخر", callback_data="add_private_reply")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ **تم إضافة الرد الخاص بنجاح!**\n\n"
+                    f"🆔 **رقم الرد:** `{reply_id}`\n"
+                    f"📝 **النص:** {reply_text[:100]}...\n"
+                    f"📅 **تاريخ الإضافة:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"تم إضافة رد خاص جديد رقم {reply_id} للمستخدم {user_id}")
+            else:
+                await update.message.reply_text("❌ فشل في إضافة الرد!")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"خطأ في إضافة الرد الخاص: {e}")
+            await update.message.reply_text("❌ حدث خطأ في إضافة الرد!")
+            return ConversationHandler.END
+
+    # ============ دوال الردود الجماعية ============
+
+    async def add_group_text_reply_trigger(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة محفز رد نصي جماعي"""
+        try:
+            trigger = update.message.text
+            user_id = update.message.from_user.id
+            
+            context.user_data['reply_trigger'] = trigger
+            
+            keyboard = [[InlineKeyboardButton("🔙 إلغاء", callback_data="cancel")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ تم حفظ المحفز: {trigger}\n\n"
+                "📝 الآن أرسل نص الرد:",
+                reply_markup=reply_markup
+            )
+            
+            return ADD_GROUP_TEXT_REPLY
+            
+        except Exception as e:
+            logger.error(f"خطأ في معالجة محفز الرد: {e}")
+            await update.message.reply_text("❌ حدث خطأ في معالجة المحفز!")
+            return ConversationHandler.END
+
+    async def add_group_text_reply_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة نص رد نصي جماعي"""
+        try:
+            reply_text = update.message.text
+            user_id = update.message.from_user.id
+            trigger = context.user_data.get('reply_trigger', '')
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            # حفظ الرد في قاعدة البيانات
+            reply_id = self.db.add_group_text_reply(user_id, trigger, reply_text)
+            
+            if reply_id:
+                keyboard = [
+                    [InlineKeyboardButton("💬 عرض الردود", callback_data="show_replies")],
+                    [InlineKeyboardButton("➕ إضافة رد آخر", callback_data="add_group_text_reply")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ **تم إضافة الرد النصي الجماعي بنجاح!**\n\n"
+                    f"🆔 **رقم الرد:** `{reply_id}`\n"
+                    f"🔤 **المحفز:** {trigger}\n"
+                    f"📝 **النص:** {reply_text[:100]}...\n"
+                    f"📅 **تاريخ الإضافة:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"تم إضافة رد نصي جماعي جديد رقم {reply_id} للمستخدم {user_id}")
+            else:
+                await update.message.reply_text("❌ فشل في إضافة الرد!")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"خطأ في إضافة الرد النصي الجماعي: {e}")
+            await update.message.reply_text("❌ حدث خطأ في إضافة الرد!")
+            return ConversationHandler.END
+
+    async def add_group_photo_reply_trigger(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة محفز رد بصورة جماعي"""
+        try:
+            trigger = update.message.text
+            user_id = update.message.from_user.id
+            
+            context.user_data['reply_trigger'] = trigger
+            
+            keyboard = [[InlineKeyboardButton("🔙 إلغاء", callback_data="cancel")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ تم حفظ المحفز: {trigger}\n\n"
+                "📝 الآن أرسل نص الرد:",
+                reply_markup=reply_markup
+            )
+            
+            return ADD_GROUP_PHOTO_REPLY
+            
+        except Exception as e:
+            logger.error(f"خطأ في معالجة محفز الرد: {e}")
+            await update.message.reply_text("❌ حدث خطأ في معالجة المحفز!")
+            return ConversationHandler.END
+
+    async def add_group_photo_reply_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة نص رد بصورة جماعي"""
+        try:
+            reply_text = update.message.text
+            user_id = update.message.from_user.id
+            trigger = context.user_data.get('reply_trigger', '')
+            
+            context.user_data['reply_text'] = reply_text
+            
+            keyboard = [[InlineKeyboardButton("🔙 إلغاء", callback_data="cancel")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ تم حفظ النص: {reply_text[:50]}...\n\n"
+                "🖼️ الآن أرسل الصورة:",
+                reply_markup=reply_markup
+            )
+            
+            return ADD_GROUP_PHOTO_MEDIA
+            
+        except Exception as e:
+            logger.error(f"خطأ في معالجة نص الرد: {e}")
+            await update.message.reply_text("❌ حدث خطأ في معالجة النص!")
+            return ConversationHandler.END
+
+    async def add_group_photo_reply_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة صورة رد بصورة جماعي"""
+        try:
+            photo = update.message.photo[-1]
+            user_id = update.message.from_user.id
+            trigger = context.user_data.get('reply_trigger', '')
+            reply_text = context.user_data.get('reply_text', '')
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            # حفظ الرد في قاعدة البيانات
+            reply_id = self.db.add_group_photo_reply(user_id, trigger, reply_text, photo.file_id)
+            
+            if reply_id:
+                keyboard = [
+                    [InlineKeyboardButton("💬 عرض الردود", callback_data="show_replies")],
+                    [InlineKeyboardButton("➕ إضافة رد آخر", callback_data="add_group_photo_reply")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ **تم إضافة الرد بالصورة الجماعي بنجاح!**\n\n"
+                    f"🆔 **رقم الرد:** `{reply_id}`\n"
+                    f"🔤 **المحفز:** {trigger}\n"
+                    f"📝 **النص:** {reply_text[:100]}...\n"
+                    f"🖼️ **الصورة:** تمت الإضافة\n"
+                    f"📅 **تاريخ الإضافة:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"تم إضافة رد بصورة جماعي جديد رقم {reply_id} للمستخدم {user_id}")
+            else:
+                await update.message.reply_text("❌ فشل في إضافة الرد!")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"خطأ في إضافة الرد بالصورة الجماعي: {e}")
+            await update.message.reply_text("❌ حدث خطأ في إضافة الرد!")
+            return ConversationHandler.END
+
+    # ============ دوال الردود العشوائية ============
+
+    async def add_random_reply_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة نص رد عشوائي"""
+        try:
+            reply_text = update.message.text
+            user_id = update.message.from_user.id
+            
+            context.user_data['reply_text'] = reply_text
+            
+            keyboard = [
+                [InlineKeyboardButton("🖼️ إضافة صورة", callback_data="add_photo")],
+                [InlineKeyboardButton("⏭️ تخطي الصورة", callback_data="skip_photo")],
+                [InlineKeyboardButton("🔙 إلغاء", callback_data="cancel")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ تم حفظ النص: {reply_text[:50]}...\n\n"
+                "🖼️ هل تريد إضافة صورة مع الرد؟",
+                reply_markup=reply_markup
+            )
+            
+            return ADD_RANDOM_MEDIA
+            
+        except Exception as e:
+            logger.error(f"خطأ في معالجة نص الرد العشوائي: {e}")
+            await update.message.reply_text("❌ حدث خطأ في معالجة النص!")
+            return ConversationHandler.END
+
+    async def add_random_reply_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """معالجة إضافة صورة رد عشوائي"""
+        try:
+            photo = update.message.photo[-1] if update.message.photo else None
+            user_id = update.message.from_user.id
+            reply_text = context.user_data.get('reply_text', '')
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            media_id = photo.file_id if photo else None
+            
+            # حفظ الرد في قاعدة البيانات
+            reply_id = self.db.add_random_reply(user_id, reply_text, media_id)
+            
+            if reply_id:
+                keyboard = [
+                    [InlineKeyboardButton("🎲 عرض الردود العشوائية", callback_data="show_random_replies_delete")],
+                    [InlineKeyboardButton("➕ إضافة رد آخر", callback_data="add_random_reply")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                media_info = "مع صورة 🖼️" if media_id else "نص فقط 📝"
+                
+                await update.message.reply_text(
+                    f"✅ **تم إضافة الرد العشوائي بنجاح!**\n\n"
+                    f"🆔 **رقم الرد:** `{reply_id}`\n"
+                    f"📝 **النص:** {reply_text[:100]}...\n"
+                    f"📊 **النوع:** {media_info}\n"
+                    f"📅 **تاريخ الإضافة:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"تم إضافة رد عشوائي جديد رقم {reply_id} للمستخدم {user_id}")
+            else:
+                await update.message.reply_text("❌ فشل في إضافة الرد!")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"خطأ في إضافة الرد العشوائي: {e}")
+            await update.message.reply_text("❌ حدث خطأ في إضافة الرد!")
+            return ConversationHandler.END
+
+    async def skip_random_reply_media(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """تخطي إضافة صورة للرد العشوائي"""
+        return await self.add_random_reply_media(update, context)
+
+    async def cancel_conversation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """إلغاء المحادثة الحالية"""
+        try:
+            user_id = None
             
             if update.message:
                 user_id = update.message.from_user.id
-                if not self.db.is_admin(user_id):
-                    await update.message.reply_text(MESSAGES['unauthorized'])
-                    return ConversationHandler.END
-                
-                await update.message.reply_text("❌ تم إلغاء الأمر.")
+            elif update.callback_query:
+                user_id = update.callback_query.from_user.id
+            
+            # إزالة المستخدم من المحادثات النشطة
+            if user_id in self.active_conversations:
+                del self.active_conversations[user_id]
+            
+            # تنظيف context
+            if context.user_data:
+                context.user_data.clear()
+            
+            if update.message:
+                keyboard = [[InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text("❌ تم إلغاء الأمر.", reply_markup=reply_markup)
             elif update.callback_query:
                 await update.callback_query.answer()
-                user_id = update.callback_query.from_user.id
-                if not self.db.is_admin(user_id):
-                    await update.callback_query.edit_message_text(MESSAGES['unauthorized'])
-                    return ConversationHandler.END
-                
-                # الرجوع إلى القائمة المناسبة
-                await self.handle_back_buttons(update.callback_query, context, "back_to_main")
+                await self.show_main_menu(update.callback_query, context)
             
             return ConversationHandler.END
             
         except Exception as e:
-            logger.error(f"خطأ في إلغاء الأمر: {e}")
+            logger.error(f"خطأ في إلغاء المحادثة: {e}")
             return ConversationHandler.END
-
-    # ============ دوال مساعدة ============
-    
-    async def handle_ad_type_selection(self, query, context, ad_type):
-        """معالجة اختيار نوع الإعلان"""
-        context.user_data['ad_type'] = ad_type
-        
-        # عرض رسالة بناءً على النوع
-        if ad_type == "text":
-            message = "📝 **الإعلان النصي**\n\nأرسل نص الإعلان:"
-        elif ad_type == "photo":
-            message = "🖼️ **الإعلان مع صورة**\n\nأرسل نص الإعلان:"
-        elif ad_type == "contact":
-            message = "📞 **الإعلان مع جهة اتصال**\n\nأرسل نص الإعلان:"
-        else:
-            message = "📢 **إضافة إعلان**\n\nأرسل نص الإعلان:"
-        
-        keyboard = [[InlineKeyboardButton(BUTTONS['cancel'], callback_data="back_to_ads")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            message,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        
-        return ADD_AD_TEXT
-
-    def get_ad_type_description(self, ad_type):
-        """الحصول على وصف نوع الإعلان"""
-        return AD_TYPES.get(ad_type, "غير معروف")
-
-    async def show_error_message(self, update, context, error_message):
-        """عرض رسالة خطأ"""
-        try:
-            if update.callback_query:
-                await update.callback_query.edit_message_text(error_message)
-            elif update.message:
-                await update.message.reply_text(error_message)
-        except Exception as e:
-            logger.error(f"خطأ في عرض رسالة الخطأ: {e}")
-
-    async def show_success_message(self, update, context, success_message):
-        """عرض رسالة نجاح"""
-        try:
-            if update.callback_query:
-                await update.callback_query.edit_message_text(success_message)
-            elif update.message:
-                await update.message.reply_text(success_message)
-        except Exception as e:
-            logger.error(f"خطأ في عرض رسالة النجاح: {e}")
-
-    # ============ دوال للتحقق ============
-    
-    async def check_admin_permission(self, user_id):
-        """التحقق من صلاحية المشرف"""
-        return self.db.is_admin(user_id)
-
-    async def check_owner_permission(self, user_id):
-        """التحقق من صلاحية المالك"""
-        return user_id == OWNER_ID
-
-    async def validate_user_input(self, text, min_length=1, max_length=4000):
-        """التحقق من صحة إدخال المستخدم"""
-        if not text:
-            return False, "النص لا يمكن أن يكون فارغاً"
-        
-        if len(text) < min_length:
-            return False, f"النص قصير جداً (الحد الأدنى {min_length} حرف)"
-        
-        if len(text) > max_length:
-            return False, f"النص طويل جداً (الحد الأقصى {max_length} حرف)"
-        
-        return True, "النص صالح"
-
-    # ============ دوال للعرض ============
-    
-    async def show_loading_message(self, query, message="جاري المعالجة..."):
-        """عرض رسالة تحميل"""
-        await query.edit_message_text(message)
-
-    async def update_message_with_buttons(self, query, message, buttons):
-        """تحديث الرسالة مع أزرار"""
-        keyboard = []
-        for row in buttons:
-            keyboard_row = []
-            for button in row:
-                if isinstance(button, tuple):
-                    keyboard_row.append(InlineKeyboardButton(button[0], callback_data=button[1]))
-                else:
-                    keyboard_row.append(InlineKeyboardButton(button, callback_data=button))
-            keyboard.append(keyboard_row)
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
-
-    # ============ دوال المساعدة للمحادثات ============
-    
-    async def start_conversation(self, update, context, conversation_state):
-        """بدء محادثة"""
-        context.user_data['conversation_active'] = True
-        return conversation_state
-
-    async def end_conversation(self, update, context):
-        """إنهاء محادثة"""
-        context.user_data['conversation_active'] = False
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    async def handle_conversation_timeout(self, update, context):
-        """معالجة انتهاء وقت المحادثة"""
-        await self.show_error_message(update, context, "⏰ انتهى وقت المحادثة. يرجى البدء من جديد.")
-        return await self.end_conversation(update, context)
-
-    # ============ دوال خاصة بمعالجة الأخطاء ============
-    
-    async def handle_database_error(self, update, context, error):
-        """معالجة خطأ قاعدة البيانات"""
-        logger.error(f"خطأ في قاعدة البيانات: {error}")
-        await self.show_error_message(
-            update, 
-            context, 
-            "❌ حدث خطأ في قاعدة البيانات. يرجى المحاولة مرة أخرى لاحقاً."
-        )
-        return await self.end_conversation(update, context)
-
-    async def handle_network_error(self, update, context, error):
-        """معالجة خطأ الشبكة"""
-        logger.error(f"خطأ في الشبكة: {error}")
-        await self.show_error_message(
-            update, 
-            context, 
-            "❌ حدث خطأ في الاتصال بالشبكة. يرجى التحقق من اتصالك بالإنترنت."
-        )
-        return await self.end_conversation(update, context)
-
-    async def handle_validation_error(self, update, context, error_message):
-        """معالجة خطأ التحقق"""
-        await self.show_error_message(update, context, f"❌ {error_message}")
-        # لا ننهي المحادثة، نعطي المستخدم فرصة أخرى
-        return ADD_AD_TEXT if context.user_data.get('ad_type') else ADD_ACCOUNT
-
-    # ============ دوال للاستخدام العام ============
-    
-    def create_button_grid(self, buttons_data, columns=2):
-        """إنشاء شبكة أزرار"""
-        grid = []
-        row = []
-        
-        for i, (text, callback_data) in enumerate(buttons_data.items(), 1):
-            row.append(InlineKeyboardButton(text, callback_data=callback_data))
-            
-            if i % columns == 0:
-                grid.append(row)
-                row = []
-        
-        if row:  # إذا بقي أزرار في الصف الأخير
-            grid.append(row)
-        
-        return grid
-
-    async def send_temporary_message(self, update, context, message, duration=5):
-        """إرسال رسالة مؤقتة"""
-        if update.message:
-            msg = await update.message.reply_text(message)
-            # حذف الرسالة بعد المدة المحددة
-            context.job_queue.run_once(
-                lambda ctx: ctx.bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id),
-                duration
-            )
-        return True
-
-    # ============ دوال للتدقيق ============
-    
-    async def audit_action(self, user_id, action, details=""):
-        """تدقيق الإجراءات"""
-        logger.info(f"تدقيق: المستخدم {user_id} - الإجراء: {action} - التفاصيل: {details}")
-        # يمكن إضافة حفظ في قاعدة البيانات هنا
-
-    async def log_conversation_start(self, user_id, conversation_type):
-        """تسجيل بدء المحادثة"""
-        logger.info(f"بدء محادثة: المستخدم {user_id} - النوع: {conversation_type}")
-
-    async def log_conversation_end(self, user_id, conversation_type, success=True):
-        """تسجيل نهاية المحادثة"""
-        status = "ناجحة" if success else "فاشلة"
-        logger.info(f"نهاية محادثة: المستخدم {user_id} - النوع: {conversation_type} - الحالة: {status}")
