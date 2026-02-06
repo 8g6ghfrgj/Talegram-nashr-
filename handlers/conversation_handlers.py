@@ -1,5 +1,5 @@
 import logging
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -58,13 +58,13 @@ class ConversationHandlers:
 
         logger.info(f"CALLBACK => {data}")
 
-        # ===== Cancel process =====
+        # ===== Cancel =====
         if data == "cancel_process":
             context.user_data.clear()
             await query.edit_message_text("❌ تم إلغاء العملية")
             return
 
-        # ===== Permission check =====
+        # ===== Permission =====
         if not self.db.is_admin(user_id):
             await query.edit_message_text("❌ ليس لديك صلاحية.")
             return
@@ -74,6 +74,22 @@ class ConversationHandlers:
 
         if data.startswith("back_to_"):
             await self.handle_back(query, context, data)
+            return
+
+
+        # ================= SPEED CONTROL =================
+
+        if data == "set_publish_delay":
+            context.user_data["set_delay"] = True
+
+            keyboard = [
+                [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")]
+            ]
+
+            await query.edit_message_text(
+                "⏱ أرسل عدد الثواني بين كل مجموعة:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
             return
 
 
@@ -183,7 +199,6 @@ class ConversationHandlers:
 
             accounts = self.db.get_accounts(user_id)
             accounts = [a for a in accounts if a[3] == 1]
-
             ads = self.db.get_ads(user_id)
 
             if not accounts:
@@ -195,11 +210,11 @@ class ConversationHandlers:
                 return
 
             if self.manager.start_publishing(user_id):
-
                 await query.edit_message_text(
-                    f"✅ بدأ النشر\n\n"
-                    f"👥 الحسابات النشطة: {len(accounts)}\n"
-                    f"📢 الإعلانات: {len(ads)}"
+                    f"🚀 بدأ النشر الحقيقي\n\n"
+                    f"👥 الحسابات: {len(accounts)}\n"
+                    f"📢 الإعلانات: {len(ads)}\n"
+                    f"⏱ المؤقت: {self.manager.publish_delay} ثانية"
                 )
             else:
                 await query.edit_message_text("⚠️ النشر يعمل بالفعل")
@@ -246,14 +261,13 @@ class ConversationHandlers:
 
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
         keyboard = [
             [InlineKeyboardButton("👥 إدارة الحسابات", callback_data="manage_accounts")],
             [InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="manage_ads")],
             [InlineKeyboardButton("👥 إدارة المجموعات", callback_data="manage_groups")],
             [InlineKeyboardButton("💬 إدارة الردود", callback_data="manage_replies")],
             [InlineKeyboardButton("👨‍💼 إدارة المشرفين", callback_data="manage_admins")],
+            [InlineKeyboardButton("⏱ ضبط مؤقت النشر", callback_data="set_publish_delay")],
             [InlineKeyboardButton("🚀 بدء النشر", callback_data="start_publishing")],
             [InlineKeyboardButton("⏹️ إيقاف النشر", callback_data="stop_publishing")]
         ]
@@ -265,10 +279,42 @@ class ConversationHandlers:
 
 
     # ==================================================
+    # SET DELAY HANDLER
+    # ==================================================
+
+    async def set_delay_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+        if not context.user_data.get("set_delay"):
+            return
+
+        try:
+            delay = float(update.message.text)
+
+            if delay < 1:
+                await update.message.reply_text("❌ أقل مدة هي 1 ثانية")
+                return
+
+            self.manager.publish_delay = delay
+            context.user_data.clear()
+
+            await update.message.reply_text(
+                f"✅ تم ضبط مؤقت النشر إلى {delay} ثانية"
+            )
+
+        except:
+            await update.message.reply_text("❌ أرسل رقم صحيح")
+
+
+    # ==================================================
     # CONVERSATION SETUP
     # ==================================================
 
     def setup_conversation_handlers(self, application):
+
+        # ===== SPEED SET =====
+        application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, self.set_delay_handler)
+        )
 
         # ===== ADD ACCOUNT =====
         application.add_handler(
@@ -412,14 +458,14 @@ class ConversationHandlers:
             )
         )
 
-        # ===== MAIN CALLBACK ROUTER =====
+        # ===== MAIN CALLBACK =====
         application.add_handler(
             CallbackQueryHandler(self.handle_callback)
         )
 
 
     # ==================================================
-    # CANCEL (COMMAND)
+    # CANCEL
     # ==================================================
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -428,7 +474,6 @@ class ConversationHandlers:
 
         if update.message:
             await update.message.reply_text("❌ تم إلغاء العملية")
-
         elif update.callback_query:
             await update.callback_query.edit_message_text("❌ تم إلغاء العملية")
 
