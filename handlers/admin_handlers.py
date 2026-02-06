@@ -2,7 +2,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
-from config import ADD_ADMIN, MESSAGES
+from config import ADD_ADMIN, MESSAGES, OWNER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class AdminHandlers:
         keyboard = [
             [InlineKeyboardButton("➕ إضافة مشرف", callback_data="add_admin")],
             [InlineKeyboardButton("📋 عرض المشرفين", callback_data="show_admins")],
-            [InlineKeyboardButton("📊 إحصائيات", callback_data="system_stats")],
+            [InlineKeyboardButton("📊 إحصائيات النظام", callback_data="system_stats")],
             [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")]
         ]
 
@@ -41,7 +41,7 @@ class AdminHandlers:
 
 
     # ==================================================
-    # START ADD ADMIN
+    # START ADD ADMIN (OWNER ONLY)
     # ==================================================
 
     async def add_admin_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -49,14 +49,19 @@ class AdminHandlers:
         query = update.callback_query
         user_id = query.from_user.id
 
-        if not self.db.is_admin(user_id):
-            await query.edit_message_text(MESSAGES["unauthorized"])
+        if user_id != OWNER_ID:
+            await query.edit_message_text("❌ هذا الخيار للمالك فقط")
             return ConversationHandler.END
 
         context.user_data.clear()
 
+        keyboard = [
+            [InlineKeyboardButton("❌ إلغاء", callback_data="cancel_process")]
+        ]
+
         await query.edit_message_text(
-            "🆔 أرسل ID المستخدم لإضافته كمشرف:"
+            "👤 أرسل آيدي المشرف الجديد:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
         return ADD_ADMIN
@@ -69,17 +74,21 @@ class AdminHandlers:
     async def add_admin_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         message = update.message
-        user_id = message.from_user.id
+        owner_id = message.from_user.id
+
+        if owner_id != OWNER_ID:
+            await message.reply_text("❌ هذا الخيار للمالك فقط")
+            return ConversationHandler.END
 
         try:
-            new_admin_id = int(message.text.strip())
+            admin_id = int(message.text.strip())
         except ValueError:
-            await message.reply_text("❌ الرجاء إرسال ID رقمي صحيح")
+            await message.reply_text("❌ الآيدي غير صحيح")
             return ADD_ADMIN
 
         success, msg = self.db.add_admin(
-            new_admin_id,
-            f"admin_{new_admin_id}",
+            admin_id,
+            f"admin_{admin_id}",
             "مشرف",
             True
         )
@@ -100,7 +109,6 @@ class AdminHandlers:
     async def show_admins(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         query = update.callback_query
-        user_id = query.from_user.id
 
         admins = self.db.get_admins()
 
@@ -108,26 +116,27 @@ class AdminHandlers:
             await query.edit_message_text("❌ لا يوجد مشرفين")
             return
 
-        text = "👨‍💼 قائمة المشرفين\n\n"
+        text = "👨‍💼 قائمة المشرفين:\n\n"
         keyboard = []
 
-        for admin in admins[:15]:
+        for admin in admins:
 
+            # DB schema:
+            # id, username, role, active, added
             admin_id, username, role, status, added = admin
 
-            status_icon = "✅" if status else "⛔"
+            status_icon = "✅" if status == 1 else "⛔"
 
-            text += f"#{admin_id} {status_icon}\n"
-            text += f"{username} - {role}\n"
-            text += f"{added[:16]}\n──────────\n"
+            text += f"{status_icon} {admin_id}\n"
+            text += f"{role}\n{added}\n──────────\n"
 
             keyboard.append([
                 InlineKeyboardButton(
-                    f"{'⛔ تعطيل' if status else '✅ تفعيل'} #{admin_id}",
+                    f"{'⛔ تعطيل' if status == 1 else '✅ تفعيل'}",
                     callback_data=f"toggle_admin_{admin_id}"
                 ),
                 InlineKeyboardButton(
-                    f"🗑 حذف #{admin_id}",
+                    "🗑 حذف",
                     callback_data=f"delete_admin_{admin_id}"
                 )
             ])
@@ -151,8 +160,12 @@ class AdminHandlers:
 
         query = update.callback_query
 
+        if admin_id == OWNER_ID:
+            await query.answer("❌ لا يمكن حذف المالك")
+            return
+
         if self.db.delete_admin(admin_id):
-            await query.answer("✅ تم الحذف")
+            await query.answer("✅ تم حذف المشرف")
         else:
             await query.answer("❌ فشل الحذف")
 
@@ -167,8 +180,12 @@ class AdminHandlers:
 
         query = update.callback_query
 
+        if admin_id == OWNER_ID:
+            await query.answer("❌ لا يمكن تعطيل المالك")
+            return
+
         if self.db.toggle_admin_status(admin_id):
-            await query.answer("🔁 تم التغيير")
+            await query.answer("🔁 تم تغيير الحالة")
         else:
             await query.answer("❌ فشل التغيير")
 
@@ -187,11 +204,11 @@ class AdminHandlers:
 
         text = (
             "📊 إحصائيات النظام\n\n"
-            f"👨‍💼 المشرفين: {stats.get('admins', 0)}\n"
-            f"👥 الحسابات: {stats.get('accounts', 0)}\n"
-            f"📢 الإعلانات: {stats.get('ads', 0)}\n"
-            f"👥 المجموعات: {stats.get('groups', 0)}\n"
-            f"💬 الردود: {stats.get('replies', 0)}"
+            f"👨‍💼 المشرفين: {stats['admins']}\n"
+            f"👥 الحسابات: {stats['accounts']}\n"
+            f"📢 الإعلانات: {stats['ads']}\n"
+            f"👥 المجموعات: {stats['groups']}\n"
+            f"💬 الردود: {stats['replies']}"
         )
 
         keyboard = [
