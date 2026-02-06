@@ -2,9 +2,21 @@ import asyncio
 import logging
 import random
 
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.errors import FloodWaitError
+
 from config import DELAY_SETTINGS
 
 logger = logging.getLogger(__name__)
+
+
+# ================= ضع بياناتك هنا =================
+
+API_ID = 123456          # ضع api_id
+API_HASH = "API_HASH_HERE"   # ضع api_hash
+
+# ==================================================
 
 
 class TelegramBotManager:
@@ -12,16 +24,41 @@ class TelegramBotManager:
     def __init__(self, db):
         self.db = db
 
-        # مهام التشغيل لكل مشرف
         self.publishing_tasks = {}
         self.join_tasks = {}
 
-        self.private_reply_tasks = {}
-        self.random_reply_tasks = {}
+        self.clients = {}
+
+        # مؤقت النشر الافتراضي (ثواني)
+        self.publish_delay = 5
 
 
     # ==================================================
-    # PUBLISH ADS (SIMULATION)
+    # CREATE / GET TELETHON CLIENT
+    # ==================================================
+
+    async def get_client(self, session_string):
+
+        if session_string in self.clients:
+            return self.clients[session_string]
+
+        client = TelegramClient(
+            StringSession(session_string),
+            API_ID,
+            API_HASH
+        )
+
+        await client.connect()
+
+        if not await client.is_user_authorized():
+            raise Exception("Session not authorized")
+
+        self.clients[session_string] = client
+        return client
+
+
+    # ==================================================
+    # START PUBLISHING
     # ==================================================
 
     def start_publishing(self, admin_id):
@@ -48,6 +85,10 @@ class TelegramBotManager:
         return False
 
 
+    # ==================================================
+    # REAL PUBLISH LOOP
+    # ==================================================
+
     async def _publishing_loop(self, admin_id):
 
         logger.info(f"[PUBLISH] Started for admin {admin_id}")
@@ -59,34 +100,70 @@ class TelegramBotManager:
                 groups = self.db.get_groups(admin_id)
 
                 active_accounts = [a for a in accounts if a[3] == 1]
-                joined_groups = [g for g in groups if g[3] == "joined"]
+                target_groups = [g for g in groups]
 
-                if not active_accounts or not ads or not joined_groups:
+                if not active_accounts or not ads or not target_groups:
                     await asyncio.sleep(10)
                     continue
 
                 random.shuffle(active_accounts)
                 random.shuffle(ads)
-                random.shuffle(joined_groups)
+                random.shuffle(target_groups)
 
                 for acc in active_accounts:
 
+                    session_string = acc[2]
+
+                    try:
+                        client = await self.get_client(session_string)
+                    except Exception as e:
+                        logger.error(f"Session failed: {e}")
+                        continue
+
                     for ad in ads:
 
-                        for group in joined_groups:
+                        ad_type = ad[2]
+                        ad_text = ad[3]
+                        ad_media = ad[4]
 
-                            # 🔧 هنا مستقبلاً ترسل الإعلان الحقيقي
-                            logger.info(
-                                f"[SEND] acc:{acc[0]} -> group:{group[0]} -> ad:{ad[0]}"
-                            )
+                        for group in target_groups:
 
-                            await asyncio.sleep(
-                                DELAY_SETTINGS["publishing"]["between_groups"]
-                            )
+                            group_link = group[2]
 
-                        await asyncio.sleep(
-                            DELAY_SETTINGS["publishing"]["between_ads"]
-                        )
+                            try:
+
+                                if ad_type == "text":
+                                    await client.send_message(
+                                        group_link,
+                                        ad_text
+                                    )
+
+                                elif ad_type == "photo":
+                                    await client.send_file(
+                                        group_link,
+                                        ad_media,
+                                        caption=ad_text
+                                    )
+
+                                elif ad_type == "contact":
+                                    await client.send_file(
+                                        group_link,
+                                        ad_media
+                                    )
+
+                                logger.info(
+                                    f"[SENT] acc:{acc[0]} -> {group_link}"
+                                )
+
+                                await asyncio.sleep(self.publish_delay)
+
+                            except FloodWaitError as e:
+                                logger.warning(f"FloodWait {e.seconds}s")
+                                await asyncio.sleep(e.seconds)
+
+                            except Exception as e:
+                                logger.error(f"Send error: {e}")
+                                await asyncio.sleep(2)
 
                 await asyncio.sleep(
                     DELAY_SETTINGS["publishing"]["between_cycles"]
@@ -102,7 +179,7 @@ class TelegramBotManager:
 
 
     # ==================================================
-    # JOIN GROUPS (SIMULATION)
+    # JOIN GROUPS (OPTIONAL REAL LATER)
     # ==================================================
 
     def start_join_groups(self, admin_id):
@@ -131,158 +208,8 @@ class TelegramBotManager:
 
     async def _join_groups_loop(self, admin_id):
 
-        logger.info(f"[JOIN] Started for admin {admin_id}")
-
         while True:
             try:
-                accounts = self.db.get_accounts(admin_id)
-                groups = self.db.get_groups(admin_id)
-
-                active_accounts = [a for a in accounts if a[3] == 1]
-                pending_groups = [g for g in groups if g[3] == "pending"]
-
-                if not active_accounts or not pending_groups:
-                    await asyncio.sleep(10)
-                    continue
-
-                for group in pending_groups:
-
-                    for acc in active_accounts:
-
-                        # 🔧 هنا مستقبلاً تنفيذ الانضمام الحقيقي
-                        logger.info(
-                            f"[JOIN] acc:{acc[0]} -> group:{group[0]}"
-                        )
-
-                        # تحديث الحالة كمحاكاة
-                        # (يمكن لاحقاً جعلها joined أو failed حسب النتيجة)
-
-                        await asyncio.sleep(
-                            DELAY_SETTINGS["join_groups"]["between_links"]
-                        )
-
-                await asyncio.sleep(
-                    DELAY_SETTINGS["join_groups"]["between_cycles"]
-                )
-
-            except asyncio.CancelledError:
-                logger.info(f"[JOIN] Stopped for admin {admin_id}")
-                break
-
-            except Exception as e:
-                logger.exception(e)
-                await asyncio.sleep(5)
-
-
-    # ==================================================
-    # PRIVATE REPLIES LOOP (OPTIONAL)
-    # ==================================================
-
-    def start_private_replies(self, admin_id):
-
-        if admin_id in self.private_reply_tasks:
-            return False
-
-        task = asyncio.create_task(
-            self._private_reply_loop(admin_id)
-        )
-
-        self.private_reply_tasks[admin_id] = task
-        return True
-
-
-    def stop_private_replies(self, admin_id):
-
-        task = self.private_reply_tasks.pop(admin_id, None)
-
-        if task:
-            task.cancel()
-            return True
-
-        return False
-
-
-    async def _private_reply_loop(self, admin_id):
-
-        logger.info(f"[PRIVATE REPLY] Started for admin {admin_id}")
-
-        while True:
-            try:
-                replies = self.db.get_private_replies(admin_id)
-
-                if not replies:
-                    await asyncio.sleep(5)
-                    continue
-
-                for r in replies:
-                    logger.info(f"[PRIVATE REPLY] {r[0]}")
-                    await asyncio.sleep(
-                        DELAY_SETTINGS["private_reply"]["between_replies"]
-                    )
-
-                await asyncio.sleep(
-                    DELAY_SETTINGS["private_reply"]["between_cycles"]
-                )
-
+                await asyncio.sleep(60)
             except asyncio.CancelledError:
                 break
-
-            except Exception as e:
-                logger.exception(e)
-                await asyncio.sleep(5)
-
-
-    # ==================================================
-    # RANDOM REPLIES LOOP (OPTIONAL)
-    # ==================================================
-
-    def start_random_replies(self, admin_id):
-
-        if admin_id in self.random_reply_tasks:
-            return False
-
-        task = asyncio.create_task(
-            self._random_reply_loop(admin_id)
-        )
-
-        self.random_reply_tasks[admin_id] = task
-        return True
-
-
-    def stop_random_replies(self, admin_id):
-
-        task = self.random_reply_tasks.pop(admin_id, None)
-
-        if task:
-            task.cancel()
-            return True
-
-        return False
-
-
-    async def _random_reply_loop(self, admin_id):
-
-        logger.info(f"[RANDOM REPLY] Started for admin {admin_id}")
-
-        while True:
-            try:
-                replies = self.db.get_random_replies(admin_id)
-
-                if not replies:
-                    await asyncio.sleep(5)
-                    continue
-
-                reply = random.choice(replies)
-
-                logger.info(f"[RANDOM REPLY] {reply[0]}")
-
-                await asyncio.sleep(
-                    DELAY_SETTINGS["random_reply"]["between_replies"]
-                )
-
-            except asyncio.CancelledError:
-                break
-
-            except Exception as e:
-                logger.exception(e)
-                await asyncio.sleep(5)
