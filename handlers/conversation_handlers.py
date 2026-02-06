@@ -56,10 +56,6 @@ class ConversationHandlers:
         data = query.data
         user_id = query.from_user.id
 
-        # منع تعارض مع محادثات الإعلانات
-        if data.startswith("ad_type_"):
-            return
-
         if not self.db.is_admin(user_id):
             await query.edit_message_text("❌ ليس لديك صلاحية.")
             return
@@ -71,108 +67,108 @@ class ConversationHandlers:
             # ---------- BACK ----------
 
             if data.startswith("back_to_"):
-                await self.handle_back(query, context, data)
+                await self.handle_back(update, context, data)
                 return
 
 
             # ---------- ACCOUNTS ----------
 
             if data == "manage_accounts":
-                await self.account_handlers.manage_accounts(query, context)
+                await self.account_handlers.manage_accounts(update, context)
 
             elif data == "show_accounts":
-                await self.account_handlers.show_accounts(query, context)
+                await self.account_handlers.show_accounts(update, context)
 
             elif data == "account_stats":
-                await self.account_handlers.show_account_stats(query, context)
+                await self.account_handlers.show_account_stats(update, context)
 
             elif data.startswith("delete_account_"):
                 await self.account_handlers.delete_account(
-                    query, context, int(data.split("_")[-1])
+                    update, context, int(data.split("_")[-1])
                 )
 
             elif data.startswith("toggle_account_"):
                 await self.account_handlers.toggle_account_status(
-                    query, context, int(data.split("_")[-1])
+                    update, context, int(data.split("_")[-1])
                 )
 
 
             # ---------- ADS ----------
 
             elif data == "manage_ads":
-                await self.ad_handlers.manage_ads(query, context)
+                await self.ad_handlers.manage_ads(update, context)
 
             elif data == "show_ads":
-                await self.ad_handlers.show_ads(query, context)
+                await self.ad_handlers.show_ads(update, context)
 
             elif data == "ad_stats":
-                await self.ad_handlers.show_ad_stats(query, context)
+                await self.ad_handlers.show_ad_stats(update, context)
 
             elif data.startswith("delete_ad_"):
                 await self.ad_handlers.delete_ad(
-                    query, context, int(data.split("_")[-1])
+                    update, context, int(data.split("_")[-1])
                 )
 
 
             # ---------- GROUPS ----------
 
             elif data == "manage_groups":
-                await self.group_handlers.manage_groups(query, context)
+                await self.group_handlers.manage_groups(update, context)
 
             elif data == "show_groups":
-                await self.group_handlers.show_groups(query, context)
+                await self.group_handlers.show_groups(update, context)
 
             elif data == "start_join_groups":
-                await self.group_handlers.start_join_groups(query, context)
+                await self.group_handlers.start_join_groups(update, context)
 
             elif data == "stop_join_groups":
-                await self.group_handlers.stop_join_groups(query, context)
+                await self.group_handlers.stop_join_groups(update, context)
 
             elif data == "group_stats":
-                await self.group_handlers.show_group_stats(query, context)
+                await self.group_handlers.show_group_stats(update, context)
 
 
             # ---------- ADMINS ----------
 
             elif data == "manage_admins":
-                await self.admin_handlers.manage_admins(query, context)
+                await self.admin_handlers.manage_admins(update, context)
 
             elif data == "show_admins":
-                await self.admin_handlers.show_admins(query, context)
+                await self.admin_handlers.show_admins(update, context)
 
             elif data == "system_stats":
-                await self.admin_handlers.show_system_stats(query, context)
+                await self.admin_handlers.show_system_stats(update, context)
 
             elif data.startswith("delete_admin_"):
                 await self.admin_handlers.delete_admin(
-                    query, context, int(data.split("_")[-1])
+                    update, context, int(data.split("_")[-1])
                 )
 
             elif data.startswith("toggle_admin_"):
                 await self.admin_handlers.toggle_admin_status(
-                    query, context, int(data.split("_")[-1])
+                    update, context, int(data.split("_")[-1])
                 )
 
 
             # ---------- REPLIES ----------
 
             elif data == "manage_replies":
-                await self.reply_handlers.manage_replies(query, context)
+                await self.reply_handlers.manage_replies(update, context)
 
             elif data == "private_replies":
-                await self.reply_handlers.manage_private_replies(query, context)
+                await self.reply_handlers.manage_private_replies(update, context)
 
             elif data == "group_replies":
-                await self.reply_handlers.manage_group_replies(query, context)
+                await self.reply_handlers.manage_group_replies(update, context)
 
 
             # ---------- PUBLISH ----------
 
             elif data == "start_publishing":
-                await self.start_publishing(query, context)
+                await self.start_publishing(update, context)
 
             elif data == "stop_publishing":
-                await self.stop_publishing(query, context)
+                await self.stop_publishing(update, context)
 
             else:
                 await query.edit_message_text("❌ زر غير معروف")
@@ -187,7 +183,7 @@ class ConversationHandlers:
     # BACK ROUTER
     # ==================================================
 
-    async def handle_back(self, query, context, data):
+    async def handle_back(self, update: Update, context: ContextTypes.DEFAULT_TYPE, data):
 
         mapping = {
             "back_to_main": self.show_main_menu,
@@ -201,16 +197,18 @@ class ConversationHandlers:
         func = mapping.get(data)
 
         if func:
-            await func(query, context)
+            await func(update, context)
         else:
-            await query.edit_message_text("❌ رجوع غير صالح")
+            await update.callback_query.edit_message_text("❌ رجوع غير صالح")
 
 
     # ==================================================
     # MAIN MENU
     # ==================================================
 
-    async def show_main_menu(self, query, context):
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+        query = update.callback_query
 
         keyboard = [
             [InlineKeyboardButton("👥 إدارة الحسابات", callback_data="manage_accounts")],
@@ -232,8 +230,9 @@ class ConversationHandlers:
     # PUBLISH CONTROL
     # ==================================================
 
-    async def start_publishing(self, query, context):
+    async def start_publishing(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+        query = update.callback_query
         admin_id = query.from_user.id
 
         accounts = self.db.get_active_publishing_accounts(admin_id)
@@ -264,7 +263,9 @@ class ConversationHandlers:
             await query.edit_message_text("⚠️ النشر يعمل بالفعل")
 
 
-    async def stop_publishing(self, query, context):
+    async def stop_publishing(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+        query = update.callback_query
 
         if self.manager.stop_publishing(query.from_user.id):
             await query.edit_message_text("⏹️ تم إيقاف النشر")
@@ -300,7 +301,7 @@ class ConversationHandlers:
         )
 
 
-        # ===== ADD AD (FIXED) =====
+        # ===== ADD AD =====
         application.add_handler(
             ConversationHandler(
                 entry_points=[
@@ -426,7 +427,7 @@ class ConversationHandlers:
         )
 
 
-        # ===== MAIN CALLBACK ROUTER (ONE ONLY) =====
+        # ===== MAIN CALLBACK ROUTER =====
         application.add_handler(
             CallbackQueryHandler(self.handle_callback)
         )
