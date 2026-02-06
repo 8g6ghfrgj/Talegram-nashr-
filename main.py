@@ -5,8 +5,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
-    CallbackQueryHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ConversationHandler,
     ContextTypes,
     filters
@@ -17,13 +17,14 @@ from config import BOT_TOKEN, OWNER_ID, MESSAGES
 from database.database import BotDatabase
 from managers.telegram_manager import TelegramBotManager
 
-from handlers.account_handlers import AccountHandlers
-from handlers.ad_handlers import AdHandlers
-from handlers.group_handlers import GroupHandlers
-from handlers.reply_handlers import ReplyHandlers
-from handlers.admin_handlers import AdminHandlers
-from handlers.conversation_handlers import ConversationHandlers
-
+from handlers import (
+    AccountHandlers,
+    AdHandlers,
+    GroupHandlers,
+    ReplyHandlers,
+    AdminHandlers,
+    ConversationHandlers
+)
 
 # ==================================================
 # LOGGING
@@ -70,7 +71,7 @@ class MainBot:
             self.reply_handlers
         )
 
-        # Application
+        # Application (PTB v20)
         self.app = Application.builder().token(BOT_TOKEN).build()
 
         self.setup_handlers()
@@ -83,8 +84,9 @@ class MainBot:
             True
         )
 
+
     # ==================================================
-    # START
+    # START COMMAND
     # ==================================================
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -110,6 +112,7 @@ class MainBot:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
+
     # ==================================================
     # CANCEL
     # ==================================================
@@ -124,6 +127,7 @@ class MainBot:
 
         return ConversationHandler.END
 
+
     # ==================================================
     # SETUP HANDLERS
     # ==================================================
@@ -134,18 +138,17 @@ class MainBot:
         self.app.add_handler(CommandHandler("start", self.start))
         self.app.add_handler(CommandHandler("cancel", self.cancel))
 
-        # Conversations + main callback router
+        # Conversations + main router
         self.conversation_handlers.setup_conversation_handlers(self.app)
 
-        # ⚠️ لا تضف CallbackQueryHandler هنا مرة ثانية
-        # لأنه مسجل بالفعل داخل setup_conversation_handlers
-
-        # Ignore normal text
+        # تجاهل أي رسالة نصية خارج المحادثات
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.ignore_message)
         )
 
+        # Error handler
         self.app.add_error_handler(self.error_handler)
+
 
     # ==================================================
     # IGNORE NORMAL TEXT
@@ -153,6 +156,7 @@ class MainBot:
 
     async def ignore_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
+
 
     # ==================================================
     # ERRORS
@@ -170,6 +174,7 @@ class MainBot:
             except:
                 pass
 
+
     # ==================================================
     # RUN
     # ==================================================
@@ -178,6 +183,7 @@ class MainBot:
 
         print("🚀 Bot is running...")
         self.app.run_polling()
+
 
 
 # ==================================================
