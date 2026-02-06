@@ -11,6 +11,7 @@ from telegram.ext import (
 
 from config import (
     ADD_ACCOUNT,
+    ADD_AD_TYPE,
     ADD_AD_TEXT,
     ADD_AD_MEDIA,
     ADD_GROUP,
@@ -43,7 +44,7 @@ class ConversationHandlers:
         self.reply_handlers = reply_handlers
 
     # ==================================================
-    # CALLBACK ROUTER
+    # CALLBACK ROUTER (MENUS ONLY)
     # ==================================================
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -54,7 +55,7 @@ class ConversationHandlers:
         user_id = query.from_user.id
 
         if not self.db.is_admin(user_id):
-            await query.edit_message_text("❌ ليس لديك صلاحية")
+            await query.edit_message_text("❌ ليس لديك صلاحية.")
             return
 
         logger.info(f"BUTTON => {data}")
@@ -153,24 +154,6 @@ class ConversationHandlers:
             elif data == "group_replies":
                 await self.reply_handlers.manage_group_replies(query, context)
 
-            elif data == "start_private_reply":
-                await self.reply_handlers.start_private_reply(query, context)
-
-            elif data == "stop_private_reply":
-                await self.reply_handlers.stop_private_reply(query, context)
-
-            elif data == "start_group_reply":
-                await self.reply_handlers.start_group_reply(query, context)
-
-            elif data == "stop_group_reply":
-                await self.reply_handlers.stop_group_reply(query, context)
-
-            elif data == "start_random_reply":
-                await self.reply_handlers.start_random_reply(query, context)
-
-            elif data == "stop_random_reply":
-                await self.reply_handlers.stop_random_reply(query, context)
-
             # ---------- PUBLISH ----------
 
             elif data == "start_publishing":
@@ -184,7 +167,7 @@ class ConversationHandlers:
 
         except Exception as e:
             logger.exception(e)
-            await query.edit_message_text("❌ حدث خطأ في النظام")
+            await query.edit_message_text(f"❌ خطأ: {e}")
 
     # ==================================================
     # BACK HANDLER
@@ -272,7 +255,7 @@ class ConversationHandlers:
             await query.edit_message_text("⚠️ النشر غير نشط")
 
     # ==================================================
-    # CONVERSATIONS SETUP
+    # CONVERSATION SETUP
     # ==================================================
 
     def setup_conversation_handlers(self, application):
@@ -310,6 +293,12 @@ class ConversationHandlers:
                     )
                 ],
                 states={
+                    ADD_AD_TYPE: [
+                        CallbackQueryHandler(
+                            self.ad_handlers.add_ad_type,
+                            pattern="^ad_type_"
+                        )
+                    ],
                     ADD_AD_TEXT: [
                         MessageHandler(
                             filters.TEXT & ~filters.COMMAND,
@@ -318,7 +307,7 @@ class ConversationHandlers:
                     ],
                     ADD_AD_MEDIA: [
                         MessageHandler(
-                            filters.ALL,
+                            filters.PHOTO | filters.Document.ALL | filters.CONTACT,
                             self.ad_handlers.add_ad_media
                         )
                     ]
@@ -419,7 +408,7 @@ class ConversationHandlers:
             )
         )
 
-        # ===== MAIN ROUTER =====
+        # ===== MAIN CALLBACK ROUTER =====
 
         application.add_handler(
             CallbackQueryHandler(self.handle_callback)
