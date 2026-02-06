@@ -54,7 +54,7 @@ DELAY_SETTINGS = {
 
 FILE_SETTINGS = {
 
-    "contact_filename": "تسوي سكليف صحتي واتساب.vcf",
+    "contact_filename": "contact.vcf",
 
     "directories": {
         "ads": "temp_files/ads",
@@ -65,6 +65,7 @@ FILE_SETTINGS = {
 
 
 # ================= CONVERSATION STATES =================
+# (نظيفة بدون تضارب)
 
 (
     ADD_ACCOUNT,
@@ -72,19 +73,12 @@ FILE_SETTINGS = {
     ADD_AD_TEXT,
     ADD_AD_MEDIA,
     ADD_GROUP,
-    ADD_PRIVATE_REPLY,
     ADD_ADMIN,
-    ADD_RANDOM_REPLY,
     ADD_PRIVATE_TEXT,
     ADD_GROUP_TEXT,
-    ADD_GROUP_PHOTO
-) = range(11)
-
-
-ADD_GROUP_TEXT_REPLY = 20
-ADD_GROUP_PHOTO_REPLY = 21
-ADD_GROUP_PHOTO_MEDIA = 22
-ADD_RANDOM_MEDIA = 23
+    ADD_GROUP_PHOTO,
+    ADD_RANDOM_REPLY
+) = range(10)
 
 
 # ================= AD TYPES =================
@@ -123,10 +117,9 @@ MESSAGES = {
 
     "start": (
         "🚀 لوحة تحكم البوت\n\n"
-        "⚡ نشر سريع مع حماية الحسابات\n"
-        "⚡ تأخير 60 ثانية بين القروبات\n"
-        "⚡ ردود تلقائية\n"
-        "⚡ انضمام سريع\n\n"
+        "⚡ نشر تلقائي\n"
+        "⚡ ردود ذكية\n"
+        "⚡ انضمام للقروبات\n\n"
         "👑 المالك: 8148890042\n\n"
         "اختر من القائمة:"
     ),
@@ -205,7 +198,7 @@ ALLOWED_FILE_TYPES = {
 }
 
 
-# ================= CONFIG CHECK =================
+# ================= SETUP HELPERS =================
 
 def validate_config():
 
@@ -233,8 +226,7 @@ def print_config():
     print("⚙️ إعدادات البوت")
     print("=" * 50)
     print("👑 المالك:", OWNER_ID)
-    print("📊 تأخير القروبات:", DELAY_SETTINGS["publishing"]["group_publishing_delay"])
-    print("📁 ملف الاتصال:", FILE_SETTINGS["contact_filename"])
+    print("📁 مجلدات الملفات جاهزة")
     print("=" * 50)
 
 
