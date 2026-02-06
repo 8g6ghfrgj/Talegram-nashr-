@@ -43,6 +43,7 @@ class ConversationHandlers:
         self.group_handlers = group_handlers
         self.reply_handlers = reply_handlers
 
+
     # ==================================================
     # MAIN CALLBACK ROUTER (MENUS ONLY)
     # ==================================================
@@ -51,10 +52,11 @@ class ConversationHandlers:
 
         query = update.callback_query
         await query.answer()
+
         data = query.data
         user_id = query.from_user.id
 
-        # تجاهل callbacks الخاصة بالمحادثات (حتى لا يحصل تعارض)
+        # منع تعارض مع محادثات الإعلانات
         if data.startswith("ad_type_"):
             return
 
@@ -71,6 +73,7 @@ class ConversationHandlers:
             if data.startswith("back_to_"):
                 await self.handle_back(query, context, data)
                 return
+
 
             # ---------- ACCOUNTS ----------
 
@@ -93,6 +96,7 @@ class ConversationHandlers:
                     query, context, int(data.split("_")[-1])
                 )
 
+
             # ---------- ADS ----------
 
             elif data == "manage_ads":
@@ -108,6 +112,7 @@ class ConversationHandlers:
                 await self.ad_handlers.delete_ad(
                     query, context, int(data.split("_")[-1])
                 )
+
 
             # ---------- GROUPS ----------
 
@@ -125,6 +130,7 @@ class ConversationHandlers:
 
             elif data == "group_stats":
                 await self.group_handlers.show_group_stats(query, context)
+
 
             # ---------- ADMINS ----------
 
@@ -147,6 +153,7 @@ class ConversationHandlers:
                     query, context, int(data.split("_")[-1])
                 )
 
+
             # ---------- REPLIES ----------
 
             elif data == "manage_replies":
@@ -157,6 +164,7 @@ class ConversationHandlers:
 
             elif data == "group_replies":
                 await self.reply_handlers.manage_group_replies(query, context)
+
 
             # ---------- PUBLISH ----------
 
@@ -169,12 +177,14 @@ class ConversationHandlers:
             else:
                 await query.edit_message_text("❌ زر غير معروف")
 
+
         except Exception as e:
             logger.exception(e)
             await query.edit_message_text("❌ حدث خطأ في النظام")
 
+
     # ==================================================
-    # BACK HANDLER
+    # BACK ROUTER
     # ==================================================
 
     async def handle_back(self, query, context, data):
@@ -194,6 +204,7 @@ class ConversationHandlers:
             await func(query, context)
         else:
             await query.edit_message_text("❌ رجوع غير صالح")
+
 
     # ==================================================
     # MAIN MENU
@@ -215,6 +226,7 @@ class ConversationHandlers:
             "🎛 لوحة التحكم الرئيسية",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
 
     # ==================================================
     # PUBLISH CONTROL
@@ -251,6 +263,7 @@ class ConversationHandlers:
         else:
             await query.edit_message_text("⚠️ النشر يعمل بالفعل")
 
+
     async def stop_publishing(self, query, context):
 
         if self.manager.stop_publishing(query.from_user.id):
@@ -258,8 +271,9 @@ class ConversationHandlers:
         else:
             await query.edit_message_text("⚠️ النشر غير نشط")
 
+
     # ==================================================
-    # CONVERSATION SETUP
+    # CONVERSATIONS SETUP
     # ==================================================
 
     def setup_conversation_handlers(self, application):
@@ -285,7 +299,8 @@ class ConversationHandlers:
             )
         )
 
-        # ===== ADD AD =====
+
+        # ===== ADD AD (FIXED) =====
         application.add_handler(
             ConversationHandler(
                 entry_points=[
@@ -318,6 +333,7 @@ class ConversationHandlers:
             )
         )
 
+
         # ===== ADD GROUP =====
         application.add_handler(
             ConversationHandler(
@@ -338,6 +354,7 @@ class ConversationHandlers:
                 fallbacks=[CommandHandler("cancel", self.cancel)]
             )
         )
+
 
         # ===== ADD ADMIN =====
         application.add_handler(
@@ -360,6 +377,7 @@ class ConversationHandlers:
             )
         )
 
+
         # ===== PRIVATE REPLY =====
         application.add_handler(
             ConversationHandler(
@@ -380,6 +398,7 @@ class ConversationHandlers:
                 fallbacks=[CommandHandler("cancel", self.cancel)]
             )
         )
+
 
         # ===== RANDOM REPLY =====
         application.add_handler(
@@ -406,10 +425,12 @@ class ConversationHandlers:
             )
         )
 
+
         # ===== MAIN CALLBACK ROUTER (ONE ONLY) =====
         application.add_handler(
             CallbackQueryHandler(self.handle_callback)
         )
+
 
     # ==================================================
     # CANCEL
