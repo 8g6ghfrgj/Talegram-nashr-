@@ -1,618 +1,563 @@
-import sqlite3
-import logging
+import aiosqlite
+import asyncio
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+from config import DB_NAME
 
 
 class BotDatabase:
 
-    def __init__(self, db_name="bot_database.db"):
-        self.db_name = db_name
-        self.init_database()
+    def __init__(self):
+        self.db_name = DB_NAME
+        asyncio.get_event_loop().run_until_complete(self._create_tables())
 
-    def connect(self):
-        return sqlite3.connect(self.db_name)
 
     # ==================================================
-    # INIT
+    # CONNECTION
     # ==================================================
 
-    def init_database(self):
+    async def _connect(self):
+        return await aiosqlite.connect(self.db_name)
 
-        conn = self.connect()
-        c = conn.cursor()
 
-        c.execute("""CREATE TABLE IF NOT EXISTS accounts(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_string TEXT UNIQUE,
-            phone TEXT,
-            name TEXT,
-            username TEXT,
-            is_active INTEGER DEFAULT 1,
-            added_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            admin_id INTEGER DEFAULT 0,
-            last_activity TEXT
-        )""")
+    # ==================================================
+    # CREATE TABLES
+    # ==================================================
 
-        c.execute("""CREATE TABLE IF NOT EXISTS account_publishing(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            account_id INTEGER,
-            status TEXT DEFAULT 'active',
-            last_publish TEXT,
-            publish_count INTEGER DEFAULT 0
-        )""")
+    async def _create_tables(self):
 
-        c.execute("""CREATE TABLE IF NOT EXISTS ads(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT,
-            text TEXT,
-            media_path TEXT,
-            file_type TEXT,
-            added_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            admin_id INTEGER DEFAULT 0,
-            is_active INTEGER DEFAULT 1
-        )""")
+        async with await self._connect() as db:
 
-        c.execute("""CREATE TABLE IF NOT EXISTS groups(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            link TEXT,
-            status TEXT DEFAULT 'pending',
-            join_date TEXT,
-            added_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            admin_id INTEGER DEFAULT 0,
-            last_checked TEXT
-        )""")
+            await db.executescript("""
 
-        c.execute("""CREATE TABLE IF NOT EXISTS admins(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER UNIQUE,
-            username TEXT,
-            full_name TEXT,
-            added_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            is_super_admin INTEGER DEFAULT 0
-        )""")
+            CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY,
+                username TEXT,
+                role TEXT,
+                active INTEGER,
+                added TEXT
+            );
 
-        c.execute("""CREATE TABLE IF NOT EXISTS private_replies(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            reply_text TEXT,
-            is_active INTEGER DEFAULT 1,
-            added_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            admin_id INTEGER DEFAULT 0
-        )""")
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER,
+                session TEXT,
+                active INTEGER,
+                added TEXT
+            );
 
-        c.execute("""CREATE TABLE IF NOT EXISTS group_text_replies(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            trigger TEXT,
-            reply_text TEXT,
-            is_active INTEGER DEFAULT 1,
-            added_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            admin_id INTEGER DEFAULT 0
-        )""")
+            CREATE TABLE IF NOT EXISTS ads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER,
+                type TEXT,
+                text TEXT,
+                media TEXT,
+                added TEXT
+            );
 
-        c.execute("""CREATE TABLE IF NOT EXISTS group_photo_replies(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            trigger TEXT,
-            reply_text TEXT,
-            media_path TEXT,
-            is_active INTEGER DEFAULT 1,
-            added_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            admin_id INTEGER DEFAULT 0
-        )""")
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER,
+                link TEXT,
+                status TEXT,
+                added TEXT
+            );
 
-        c.execute("""CREATE TABLE IF NOT EXISTS group_random_replies(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            reply_text TEXT,
-            media_path TEXT,
-            is_active INTEGER DEFAULT 1,
-            added_date TEXT DEFAULT CURRENT_TIMESTAMP,
-            admin_id INTEGER DEFAULT 0,
-            has_media INTEGER DEFAULT 0
-        )""")
+            CREATE TABLE IF NOT EXISTS private_replies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER,
+                text TEXT,
+                added TEXT
+            );
 
-        c.execute("""CREATE TABLE IF NOT EXISTS logs(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            admin_id INTEGER,
-            action TEXT,
-            details TEXT,
-            timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-        )""")
+            CREATE TABLE IF NOT EXISTS random_replies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER,
+                type TEXT,
+                text TEXT,
+                media TEXT,
+                added TEXT
+            );
 
-        conn.commit()
-        conn.close()
+            """)
+
+            await db.commit()
+
+
+    # ==================================================
+    # HELPERS
+    # ==================================================
+
+    def _now(self):
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
     # ==================================================
     # ADMINS
     # ==================================================
 
-    def add_admin(self, user_id, username, full_name, is_super=False):
+    def is_admin(self, admin_id):
+        return asyncio.get_event_loop().run_until_complete(
+            self._is_admin(admin_id)
+        )
 
-        conn = self.connect()
-        c = conn.cursor()
+    async def _is_admin(self, admin_id):
 
-        try:
-            c.execute(
-                "INSERT INTO admins(user_id,username,full_name,is_super_admin) VALUES(?,?,?,?)",
-                (user_id, username, full_name, int(is_super))
+        async with await self._connect() as db:
+
+            cur = await db.execute(
+                "SELECT active FROM admins WHERE id=?",
+                (admin_id,)
             )
-            conn.commit()
-            return True, "تم إضافة المشرف"
+            row = await cur.fetchone()
 
-        except sqlite3.IntegrityError:
-            return False, "المشرف موجود مسبقاً"
+            return bool(row and row[0])
 
-        finally:
-            conn.close()
+
+    def add_admin(self, admin_id, username, role, active):
+
+        return asyncio.get_event_loop().run_until_complete(
+            self._add_admin(admin_id, username, role, active)
+        )
+
+    async def _add_admin(self, admin_id, username, role, active):
+
+        async with await self._connect() as db:
+
+            try:
+                await db.execute(
+                    "INSERT OR REPLACE INTO admins VALUES (?,?,?,?,?)",
+                    (admin_id, username, role, int(active), self._now())
+                )
+                await db.commit()
+                return True, "OK"
+            except Exception as e:
+                return False, str(e)
+
 
     def get_admins(self):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._get_admins()
+        )
 
-        c.execute("SELECT * FROM admins ORDER BY id")
-        rows = c.fetchall()
+    async def _get_admins(self):
 
-        conn.close()
-        return rows
+        async with await self._connect() as db:
+
+            cur = await db.execute(
+                "SELECT * FROM admins ORDER BY added DESC"
+            )
+            return await cur.fetchall()
+
 
     def delete_admin(self, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._delete_admin(admin_id)
+        )
 
-        c.execute("DELETE FROM admins WHERE id=?", (admin_id,))
-        conn.commit()
+    async def _delete_admin(self, admin_id):
 
-        ok = c.rowcount > 0
-        conn.close()
-        return ok
+        async with await self._connect() as db:
 
-    def is_admin(self, user_id):
+            await db.execute(
+                "DELETE FROM admins WHERE id=?",
+                (admin_id,)
+            )
+            await db.commit()
+            return True
 
-        conn = self.connect()
-        c = conn.cursor()
 
-        c.execute("SELECT id FROM admins WHERE user_id=?", (user_id,))
-        r = c.fetchone()
+    def toggle_admin_status(self, admin_id):
 
-        conn.close()
-        return r is not None
+        return asyncio.get_event_loop().run_until_complete(
+            self._toggle_admin_status(admin_id)
+        )
+
+    async def _toggle_admin_status(self, admin_id):
+
+        async with await self._connect() as db:
+
+            cur = await db.execute(
+                "SELECT active FROM admins WHERE id=?",
+                (admin_id,)
+            )
+            row = await cur.fetchone()
+
+            if not row:
+                return False
+
+            new_status = 0 if row[0] else 1
+
+            await db.execute(
+                "UPDATE admins SET active=? WHERE id=?",
+                (new_status, admin_id)
+            )
+
+            await db.commit()
+            return True
+
 
     # ==================================================
     # ACCOUNTS
     # ==================================================
 
-    def add_account(self, session, phone, name, username, admin_id):
+    def add_account(self, admin_id, session):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._add_account(admin_id, session)
+        )
 
-        try:
-            c.execute("""INSERT INTO accounts
-                (session_string,phone,name,username,admin_id)
-                VALUES(?,?,?,?,?)""",
-                (session, phone, name, username, admin_id))
+    async def _add_account(self, admin_id, session):
 
-            acc_id = c.lastrowid
+        async with await self._connect() as db:
 
-            c.execute("INSERT INTO account_publishing(account_id) VALUES(?)", (acc_id,))
-            conn.commit()
+            await db.execute(
+                "INSERT INTO accounts VALUES (NULL,?,?,?,?)",
+                (admin_id, session, 1, self._now())
+            )
 
-            return True, f"تم إضافة الحساب #{acc_id}"
+            await db.commit()
+            return True, "OK"
 
-        except sqlite3.IntegrityError:
-            return False, "الحساب موجود مسبقاً"
-
-        finally:
-            conn.close()
 
     def get_accounts(self, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._get_accounts(admin_id)
+        )
 
-        c.execute("""
-        SELECT a.id,a.session_string,a.phone,a.name,a.username,
-               a.is_active,a.added_date,ap.status,ap.last_publish
-        FROM accounts a
-        LEFT JOIN account_publishing ap ON a.id=ap.account_id
-        WHERE a.admin_id=? OR a.admin_id=0
-        ORDER BY a.id
-        """, (admin_id,))
+    async def _get_accounts(self, admin_id):
 
-        rows = c.fetchall()
-        conn.close()
-        return rows
+        async with await self._connect() as db:
+
+            cur = await db.execute(
+                "SELECT * FROM accounts WHERE admin_id=? ORDER BY added DESC",
+                (admin_id,)
+            )
+
+            return await cur.fetchall()
+
 
     def delete_account(self, acc_id, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._delete_account(acc_id, admin_id)
+        )
 
-        c.execute("DELETE FROM accounts WHERE id=? AND (admin_id=? OR admin_id=0)",
-                  (acc_id, admin_id))
+    async def _delete_account(self, acc_id, admin_id):
 
-        c.execute("DELETE FROM account_publishing WHERE account_id=?", (acc_id,))
-        conn.commit()
+        async with await self._connect() as db:
 
-        ok = c.rowcount > 0
-        conn.close()
-        return ok
+            await db.execute(
+                "DELETE FROM accounts WHERE id=? AND admin_id=?",
+                (acc_id, admin_id)
+            )
+
+            await db.commit()
+            return True
+
 
     def toggle_account_status(self, acc_id, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._toggle_account_status(acc_id, admin_id)
+        )
 
-        c.execute("SELECT is_active FROM accounts WHERE id=?",(acc_id,))
-        r = c.fetchone()
+    async def _toggle_account_status(self, acc_id, admin_id):
 
-        if not r:
-            conn.close()
-            return False
+        async with await self._connect() as db:
 
-        new = 0 if r[0] else 1
+            cur = await db.execute(
+                "SELECT active FROM accounts WHERE id=? AND admin_id=?",
+                (acc_id, admin_id)
+            )
+            row = await cur.fetchone()
 
-        c.execute("""
-        UPDATE accounts SET is_active=?
-        WHERE id=? AND (admin_id=? OR admin_id=0)
-        """, (new, acc_id, admin_id))
+            if not row:
+                return False
 
-        conn.commit()
-        conn.close()
-        return True
+            new_status = 0 if row[0] else 1
 
-    def get_active_publishing_accounts(self, admin_id):
+            await db.execute(
+                "UPDATE accounts SET active=? WHERE id=? AND admin_id=?",
+                (new_status, acc_id, admin_id)
+            )
 
-        conn = self.connect()
-        c = conn.cursor()
+            await db.commit()
+            return True
 
-        c.execute("""
-        SELECT a.id,a.session_string,a.name,a.username
-        FROM accounts a
-        JOIN account_publishing ap ON a.id=ap.account_id
-        WHERE a.is_active=1 AND ap.status='active'
-        AND (a.admin_id=? OR a.admin_id=0)
-        """,(admin_id,))
-
-        rows = c.fetchall()
-        conn.close()
-        return rows
 
     # ==================================================
     # ADS
     # ==================================================
 
-    def add_ad(self, ad_type, text, media_path, file_type, admin_id):
+    def add_ad(self, ad_type, text, media, _, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._add_ad(ad_type, text, media, admin_id)
+        )
 
-        c.execute("""INSERT INTO ads(type,text,media_path,file_type,admin_id)
-                     VALUES(?,?,?,?,?)""",
-                  (ad_type, text, media_path, file_type, admin_id))
+    async def _add_ad(self, ad_type, text, media, admin_id):
 
-        conn.commit()
-        conn.close()
-        return True, "تم إضافة الإعلان"
+        async with await self._connect() as db:
 
-    def get_ads(self, admin_id=None):
+            await db.execute(
+                "INSERT INTO ads VALUES (NULL,?,?,?,?,?)",
+                (admin_id, ad_type, text, media, self._now())
+            )
 
-        conn = self.connect()
-        c = conn.cursor()
+            await db.commit()
+            return True, "OK"
 
-        if admin_id is not None:
-            c.execute("SELECT * FROM ads WHERE admin_id=? OR admin_id=0 ORDER BY id",
-                      (admin_id,))
-        else:
-            c.execute("SELECT * FROM ads ORDER BY id")
 
-        rows = c.fetchall()
-        conn.close()
-        return rows
+    def get_ads(self, admin_id):
+
+        return asyncio.get_event_loop().run_until_complete(
+            self._get_ads(admin_id)
+        )
+
+    async def _get_ads(self, admin_id):
+
+        async with await self._connect() as db:
+
+            cur = await db.execute(
+                "SELECT * FROM ads WHERE admin_id=? ORDER BY added DESC",
+                (admin_id,)
+            )
+
+            return await cur.fetchall()
+
 
     def delete_ad(self, ad_id, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._delete_ad(ad_id, admin_id)
+        )
 
-        c.execute("""DELETE FROM ads WHERE id=? AND (admin_id=? OR admin_id=0)""",
-                  (ad_id, admin_id))
+    async def _delete_ad(self, ad_id, admin_id):
 
-        conn.commit()
-        ok = c.rowcount > 0
-        conn.close()
-        return ok
+        async with await self._connect() as db:
+
+            await db.execute(
+                "DELETE FROM ads WHERE id=? AND admin_id=?",
+                (ad_id, admin_id)
+            )
+
+            await db.commit()
+            return True
+
 
     # ==================================================
     # GROUPS
     # ==================================================
 
-    def add_group(self, link, admin_id):
+    def add_group(self, admin_id, link):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._add_group(admin_id, link)
+        )
 
-        c.execute("INSERT INTO groups(link,admin_id) VALUES(?,?)",
-                  (link, admin_id))
+    async def _add_group(self, admin_id, link):
 
-        conn.commit()
-        conn.close()
-        return True
+        async with await self._connect() as db:
 
-    def get_groups(self, admin_id=None, status=None):
+            await db.execute(
+                "INSERT INTO groups VALUES (NULL,?,?,?,?)",
+                (admin_id, link, "pending", self._now())
+            )
 
-        conn = self.connect()
-        c = conn.cursor()
+            await db.commit()
+            return True, "OK"
 
-        q = "SELECT * FROM groups WHERE 1=1"
-        p = []
 
-        if admin_id is not None:
-            q += " AND (admin_id=? OR admin_id=0)"
-            p.append(admin_id)
+    def get_groups(self, admin_id):
 
-        if status:
-            q += " AND status=?"
-            p.append(status)
+        return asyncio.get_event_loop().run_until_complete(
+            self._get_groups(admin_id)
+        )
 
-        q += " ORDER BY id"
+    async def _get_groups(self, admin_id):
 
-        c.execute(q, p)
-        rows = c.fetchall()
-        conn.close()
-        return rows
+        async with await self._connect() as db:
 
-    def update_group_status(self, gid, status):
+            cur = await db.execute(
+                "SELECT * FROM groups WHERE admin_id=? ORDER BY added DESC",
+                (admin_id,)
+            )
 
-        conn = self.connect()
-        c = conn.cursor()
+            return await cur.fetchall()
 
-        c.execute("""UPDATE groups SET status=?,join_date=CURRENT_TIMESTAMP,
-                     last_checked=CURRENT_TIMESTAMP WHERE id=?""",
-                  (status, gid))
 
-        conn.commit()
-        conn.close()
-        return True
+    def delete_group(self, group_id, admin_id):
+
+        return asyncio.get_event_loop().run_until_complete(
+            self._delete_group(group_id, admin_id)
+        )
+
+    async def _delete_group(self, group_id, admin_id):
+
+        async with await self._connect() as db:
+
+            await db.execute(
+                "DELETE FROM groups WHERE id=? AND admin_id=?",
+                (group_id, admin_id)
+            )
+
+            await db.commit()
+            return True
+
 
     # ==================================================
     # REPLIES
     # ==================================================
 
-    def add_private_reply(self, text, admin_id):
+    def add_private_reply(self, admin_id, text):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._add_private_reply(admin_id, text)
+        )
 
-        c.execute("INSERT INTO private_replies(reply_text,admin_id) VALUES(?,?)",
-                  (text, admin_id))
+    async def _add_private_reply(self, admin_id, text):
 
-        conn.commit()
-        conn.close()
-        return True
+        async with await self._connect() as db:
 
-    def get_private_replies(self, admin_id=None):
+            await db.execute(
+                "INSERT INTO private_replies VALUES (NULL,?,?,?)",
+                (admin_id, text, self._now())
+            )
 
-        conn = self.connect()
-        c = conn.cursor()
+            await db.commit()
+            return True, "OK"
 
-        if admin_id is not None:
-            c.execute("SELECT * FROM private_replies WHERE admin_id=? OR admin_id=0",
-                      (admin_id,))
-        else:
-            c.execute("SELECT * FROM private_replies")
 
-        rows = c.fetchall()
-        conn.close()
-        return rows
+    def get_private_replies(self, admin_id):
 
-    def delete_private_reply(self, rid, admin_id):
+        return asyncio.get_event_loop().run_until_complete(
+            self._get_private_replies(admin_id)
+        )
 
-        conn = self.connect()
-        c = conn.cursor()
+    async def _get_private_replies(self, admin_id):
 
-        c.execute("""DELETE FROM private_replies
-                     WHERE id=? AND (admin_id=? OR admin_id=0)""",
-                  (rid, admin_id))
+        async with await self._connect() as db:
 
-        conn.commit()
-        ok = c.rowcount > 0
-        conn.close()
-        return ok
+            cur = await db.execute(
+                "SELECT * FROM private_replies WHERE admin_id=? ORDER BY added DESC",
+                (admin_id,)
+            )
 
-    def add_group_text_reply(self, trigger, text, admin_id):
+            return await cur.fetchall()
 
-        conn = self.connect()
-        c = conn.cursor()
 
-        c.execute("""INSERT INTO group_text_replies
-                     (trigger,reply_text,admin_id)
-                     VALUES(?,?,?)""",
-                  (trigger, text, admin_id))
+    def delete_private_reply(self, reply_id, admin_id):
 
-        conn.commit()
-        conn.close()
-        return True
+        return asyncio.get_event_loop().run_until_complete(
+            self._delete_private_reply(reply_id, admin_id)
+        )
 
-    def get_group_text_replies(self, admin_id=None):
+    async def _delete_private_reply(self, reply_id, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+        async with await self._connect() as db:
 
-        if admin_id:
-            c.execute("""SELECT * FROM group_text_replies
-                         WHERE admin_id=? OR admin_id=0""",(admin_id,))
-        else:
-            c.execute("SELECT * FROM group_text_replies")
+            await db.execute(
+                "DELETE FROM private_replies WHERE id=? AND admin_id=?",
+                (reply_id, admin_id)
+            )
 
-        rows = c.fetchall()
-        conn.close()
-        return rows
+            await db.commit()
+            return True
 
-    def delete_group_text_reply(self, rid, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+    def add_random_reply(self, admin_id, r_type, text, media):
 
-        c.execute("""DELETE FROM group_text_replies
-                     WHERE id=? AND (admin_id=? OR admin_id=0)""",
-                  (rid, admin_id))
+        return asyncio.get_event_loop().run_until_complete(
+            self._add_random_reply(admin_id, r_type, text, media)
+        )
 
-        conn.commit()
-        ok = c.rowcount > 0
-        conn.close()
-        return ok
+    async def _add_random_reply(self, admin_id, r_type, text, media):
 
-    def add_group_photo_reply(self, trigger, text, media, admin_id):
+        async with await self._connect() as db:
 
-        conn = self.connect()
-        c = conn.cursor()
+            await db.execute(
+                "INSERT INTO random_replies VALUES (NULL,?,?,?,?,?)",
+                (admin_id, r_type, text, media, self._now())
+            )
 
-        c.execute("""INSERT INTO group_photo_replies
-                     (trigger,reply_text,media_path,admin_id)
-                     VALUES(?,?,?,?)""",
-                  (trigger, text, media, admin_id))
+            await db.commit()
+            return True, "OK"
 
-        conn.commit()
-        conn.close()
-        return True
 
-    def get_group_photo_replies(self, admin_id=None):
+    def get_random_replies(self, admin_id):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._get_random_replies(admin_id)
+        )
 
-        if admin_id:
-            c.execute("""SELECT * FROM group_photo_replies
-                         WHERE admin_id=? OR admin_id=0""",(admin_id,))
-        else:
-            c.execute("SELECT * FROM group_photo_replies")
+    async def _get_random_replies(self, admin_id):
 
-        rows = c.fetchall()
-        conn.close()
-        return rows
+        async with await self._connect() as db:
 
-    def delete_group_photo_reply(self, rid, admin_id):
+            cur = await db.execute(
+                "SELECT * FROM random_replies WHERE admin_id=? ORDER BY added DESC",
+                (admin_id,)
+            )
 
-        conn = self.connect()
-        c = conn.cursor()
+            return await cur.fetchall()
 
-        c.execute("""DELETE FROM group_photo_replies
-                     WHERE id=? AND (admin_id=? OR admin_id=0)""",
-                  (rid, admin_id))
 
-        conn.commit()
-        ok = c.rowcount > 0
-        conn.close()
-        return ok
+    def delete_random_reply(self, reply_id, admin_id):
 
-    def add_group_random_reply(self, text, media, admin_id):
+        return asyncio.get_event_loop().run_until_complete(
+            self._delete_random_reply(reply_id, admin_id)
+        )
 
-        conn = self.connect()
-        c = conn.cursor()
+    async def _delete_random_reply(self, reply_id, admin_id):
 
-        c.execute("""INSERT INTO group_random_replies
-                     (reply_text,media_path,admin_id,has_media)
-                     VALUES(?,?,?,?)""",
-                  (text, media, admin_id, 1 if media else 0))
+        async with await self._connect() as db:
 
-        conn.commit()
-        conn.close()
-        return True
+            await db.execute(
+                "DELETE FROM random_replies WHERE id=? AND admin_id=?",
+                (reply_id, admin_id)
+            )
 
-    def get_group_random_replies(self, admin_id=None):
+            await db.commit()
+            return True
 
-        conn = self.connect()
-        c = conn.cursor()
-
-        if admin_id:
-            c.execute("""SELECT * FROM group_random_replies
-                         WHERE is_active=1 AND (admin_id=? OR admin_id=0)""",
-                      (admin_id,))
-        else:
-            c.execute("SELECT * FROM group_random_replies WHERE is_active=1")
-
-        rows = c.fetchall()
-        conn.close()
-        return rows
-
-    def delete_group_random_reply(self, rid, admin_id):
-
-        conn = self.connect()
-        c = conn.cursor()
-
-        c.execute("""DELETE FROM group_random_replies
-                     WHERE id=? AND (admin_id=? OR admin_id=0)""",
-                  (rid, admin_id))
-
-        conn.commit()
-        ok = c.rowcount > 0
-        conn.close()
-        return ok
 
     # ==================================================
-    # LOGS + STATS
+    # SYSTEM STATS
     # ==================================================
 
-    def log_action(self, admin_id, action, details):
+    def get_system_statistics(self):
 
-        conn = self.connect()
-        c = conn.cursor()
+        return asyncio.get_event_loop().run_until_complete(
+            self._get_system_statistics()
+        )
 
-        c.execute("""INSERT INTO logs(admin_id,action,details)
-                     VALUES(?,?,?)""",
-                  (admin_id, action, details))
+    async def _get_system_statistics(self):
 
-        conn.commit()
-        conn.close()
+        async with await self._connect() as db:
 
-    def get_logs(self, limit=50):
+            stats = {}
 
-        conn = self.connect()
-        c = conn.cursor()
+            for table in [
+                "admins",
+                "accounts",
+                "ads",
+                "groups",
+                "private_replies",
+                "random_replies"
+            ]:
 
-        c.execute("SELECT * FROM logs ORDER BY timestamp DESC LIMIT ?",
-                  (limit,))
+                cur = await db.execute(f"SELECT COUNT(*) FROM {table}")
+                count = await cur.fetchone()
+                stats[table] = count[0]
 
-        rows = c.fetchall()
-        conn.close()
-        return rows
-
-    def get_statistics(self, admin_id=None):
-
-        conn = self.connect()
-        c = conn.cursor()
-
-        if admin_id:
-            c.execute("SELECT COUNT(*),SUM(is_active) FROM accounts WHERE admin_id=? OR admin_id=0",(admin_id,))
-        else:
-            c.execute("SELECT COUNT(*),SUM(is_active) FROM accounts")
-
-        total, active = c.fetchone()
-
-        if admin_id:
-            c.execute("SELECT COUNT(*) FROM ads WHERE admin_id=? OR admin_id=0",(admin_id,))
-        else:
-            c.execute("SELECT COUNT(*) FROM ads")
-
-        ads = c.fetchone()[0]
-
-        if admin_id:
-            c.execute("""SELECT COUNT(*),
-                         SUM(CASE WHEN status='joined' THEN 1 ELSE 0 END)
-                         FROM groups WHERE admin_id=? OR admin_id=0""",(admin_id,))
-        else:
-            c.execute("""SELECT COUNT(*),
-                         SUM(CASE WHEN status='joined' THEN 1 ELSE 0 END)
-                         FROM groups""")
-
-        g_total, g_joined = c.fetchone()
-
-        conn.close()
-
-        return {
-            "accounts": {"total": total or 0, "active": active or 0},
-            "ads": ads or 0,
-            "groups": {"total": g_total or 0, "joined": g_joined or 0}
-        }
+            return {
+                "admins": stats["admins"],
+                "accounts": stats["accounts"],
+                "ads": stats["ads"],
+                "groups": stats["groups"],
+                "replies": stats["private_replies"] + stats["random_replies"]
+                              }
