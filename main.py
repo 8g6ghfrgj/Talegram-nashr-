@@ -134,15 +134,13 @@ class MainBot:
         self.app.add_handler(CommandHandler("start", self.start))
         self.app.add_handler(CommandHandler("cancel", self.cancel))
 
-        # Conversations (ALL flows)
+        # Conversations + main callback router
         self.conversation_handlers.setup_conversation_handlers(self.app)
 
-        # Main callback router (ONLY ONE)
-        self.app.add_handler(
-            CallbackQueryHandler(self.conversation_handlers.handle_callback)
-        )
+        # ⚠️ لا تضف CallbackQueryHandler هنا مرة ثانية
+        # لأنه مسجل بالفعل داخل setup_conversation_handlers
 
-        # Fallback text (ignored safely)
+        # Ignore normal text
         self.app.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.ignore_message)
         )
