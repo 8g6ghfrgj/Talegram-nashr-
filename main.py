@@ -1,28 +1,19 @@
 import sys
 import logging
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters
+    ContextTypes
 )
 
 from config import BOT_TOKEN, OWNER_ID, MESSAGES
-
 from database.database import BotDatabase
 from managers.telegram_manager import TelegramBotManager
 
-from handlers.account_handlers import AccountHandlers
-from handlers.ad_handlers import AdHandlers
-from handlers.group_handlers import GroupHandlers
-from handlers.reply_handlers import ReplyHandlers
-from handlers.admin_handlers import AdminHandlers
-from handlers.conversation_handlers import ConversationHandlers
+# menus سيتم إنشاؤه بعد هذه الخطوة
+from menus import show_main_menu
 
 
 # ==================================================
@@ -31,14 +22,14 @@ from handlers.conversation_handlers import ConversationHandlers
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 logger = logging.getLogger(__name__)
 
 
 # ==================================================
-# MAIN BOT
+# MAIN BOT CLASS
 # ==================================================
 
 class MainBot:
@@ -49,37 +40,19 @@ class MainBot:
             print("❌ BOT_TOKEN غير موجود")
             sys.exit(1)
 
-        # ================= DATABASE + MANAGER =================
-
+        # ===== DATABASE =====
         self.db = BotDatabase()
+
+        # ===== MANAGER =====
         self.manager = TelegramBotManager(self.db)
 
-        # ================= HANDLERS =================
-
-        self.account_handlers = AccountHandlers(self.db, self.manager)
-        self.ad_handlers = AdHandlers(self.db, self.manager)
-        self.group_handlers = GroupHandlers(self.db, self.manager)
-        self.reply_handlers = ReplyHandlers(self.db, self.manager)
-        self.admin_handlers = AdminHandlers(self.db, self.manager)
-
-        self.conversation_handlers = ConversationHandlers(
-            self.db,
-            self.manager,
-            self.admin_handlers,
-            self.account_handlers,
-            self.ad_handlers,
-            self.group_handlers,
-            self.reply_handlers
-        )
-
-        # ================= APPLICATION =================
-
+        # ===== APPLICATION =====
         self.app = Application.builder().token(BOT_TOKEN).build()
 
-        self.setup_handlers()
+        # ===== HANDLERS =====
+        self.register_handlers()
 
-        # ================= ADD OWNER AUTO =================
-
+        # ===== ADD OWNER =====
         self.db.add_admin(
             OWNER_ID,
             "owner",
@@ -89,7 +62,7 @@ class MainBot:
 
 
     # ==================================================
-    # START COMMAND
+    # /start
     # ==================================================
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -100,46 +73,22 @@ class MainBot:
             await update.message.reply_text(MESSAGES["unauthorized"])
             return
 
-        keyboard = [
-            [InlineKeyboardButton("👥 إدارة الحسابات", callback_data="manage_accounts")],
-            [InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="manage_ads")],
-            [InlineKeyboardButton("👥 إدارة المجموعات", callback_data="manage_groups")],
-            [InlineKeyboardButton("💬 إدارة الردود", callback_data="manage_replies")],
-            [InlineKeyboardButton("👨‍💼 إدارة المشرفين", callback_data="manage_admins")],
-            [InlineKeyboardButton("⏱ ضبط وقت النشر", callback_data="set_publish_delay")],
-            [InlineKeyboardButton("🚀 بدء النشر", callback_data="start_publishing")],
-            [InlineKeyboardButton("⏹️ إيقاف النشر", callback_data="stop_publishing")]
-        ]
-
-        await update.message.reply_text(
-            MESSAGES["start"],
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await show_main_menu(update, context)
 
 
     # ==================================================
-    # CANCEL COMMAND
+    # REGISTER HANDLERS
     # ==================================================
 
-    async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def register_handlers(self):
 
-        context.user_data.clear()
+        self.app.add_handler(CommandHandler("start", self.start))
 
-        if update.message:
-            await update.message.reply_text("❌ تم إلغاء العملية")
+        # لاحقًا سنضيف:
+        # - menus callbacks
+        # - conversations هنا (واحد واحد)
 
-        elif update.callback_query:
-            await update.callback_query.edit_message_text("❌ تم إلغاء العملية")
-
-        return ConversationHandler.END
-
-
-    # ==================================================
-    # IGNORE NORMAL TEXT
-    # ==================================================
-
-    async def ignore_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        return
+        self.app.add_error_handler(self.error_handler)
 
 
     # ==================================================
@@ -157,28 +106,6 @@ class MainBot:
                 )
             except:
                 pass
-
-
-    # ==================================================
-    # SETUP HANDLERS
-    # ==================================================
-
-    def setup_handlers(self):
-
-        # ===== Commands =====
-        self.app.add_handler(CommandHandler("start", self.start))
-        self.app.add_handler(CommandHandler("cancel", self.cancel))
-
-        # ===== Conversations + callbacks =====
-        self.conversation_handlers.setup_conversation_handlers(self.app)
-
-        # ===== Ignore normal text =====
-        self.app.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self.ignore_message)
-        )
-
-        # ===== Errors =====
-        self.app.add_error_handler(self.error_handler)
 
 
     # ==================================================
