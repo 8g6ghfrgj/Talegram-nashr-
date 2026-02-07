@@ -6,38 +6,41 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError
 
-from config import DELAY_SETTINGS
-
 logger = logging.getLogger(__name__)
 
 
-# ================= ضع بياناتك هنا =================
+# =========================
+# TELETHON CREDENTIALS
+# =========================
 
-API_ID = 123456          # ضع api_id
-API_HASH = "API_HASH_HERE"   # ضع api_hash
+API_ID = 123456        # ضع api_id
+API_HASH = "API_HASH" # ضع api_hash
 
-# ==================================================
 
+# =========================
+# TELEGRAM MANAGER
+# =========================
 
 class TelegramBotManager:
 
     def __init__(self, db):
         self.db = db
 
-        self.publishing_tasks = {}
-        self.join_tasks = {}
+        # admin_id -> asyncio.Task
+        self.publish_tasks = {}
 
+        # session_string -> TelegramClient
         self.clients = {}
 
-        # مؤقت النشر الافتراضي (ثواني)
-        self.publish_delay = 5
+        # default delay (seconds)
+        self.publish_delay = 5.0
 
 
     # ==================================================
-    # CREATE / GET TELETHON CLIENT
+    # CLIENT HANDLING
     # ==================================================
 
-    async def get_client(self, session_string):
+    async def get_client(self, session_string: str) -> TelegramClient:
 
         if session_string in self.clients:
             return self.clients[session_string]
@@ -51,64 +54,64 @@ class TelegramBotManager:
         await client.connect()
 
         if not await client.is_user_authorized():
-            raise Exception("Session not authorized")
+            raise RuntimeError("Session not authorized")
 
         self.clients[session_string] = client
         return client
 
 
     # ==================================================
-    # START PUBLISHING
+    # START / STOP PUBLISHING
     # ==================================================
 
-    def start_publishing(self, admin_id):
+    def start_publishing(self, admin_id: int) -> bool:
 
-        if admin_id in self.publishing_tasks:
-            return False
+        if admin_id in self.publish_tasks:
+            return False  # already running
 
         task = asyncio.create_task(
-            self._publishing_loop(admin_id)
+            self._publish_loop(admin_id)
         )
 
-        self.publishing_tasks[admin_id] = task
+        self.publish_tasks[admin_id] = task
+        logger.info(f"[PUBLISH] Started for admin {admin_id}")
         return True
 
 
-    def stop_publishing(self, admin_id):
+    def stop_publishing(self, admin_id: int) -> bool:
 
-        task = self.publishing_tasks.pop(admin_id, None)
+        task = self.publish_tasks.pop(admin_id, None)
 
-        if task:
-            task.cancel()
-            return True
+        if not task:
+            return False
 
-        return False
+        task.cancel()
+        logger.info(f"[PUBLISH] Stopped for admin {admin_id}")
+        return True
 
 
     # ==================================================
-    # REAL PUBLISH LOOP
+    # MAIN PUBLISH LOOP (REAL)
     # ==================================================
 
-    async def _publishing_loop(self, admin_id):
+    async def _publish_loop(self, admin_id: int):
 
-        logger.info(f"[PUBLISH] Started for admin {admin_id}")
+        try:
+            while True:
 
-        while True:
-            try:
                 accounts = self.db.get_accounts(admin_id)
                 ads = self.db.get_ads(admin_id)
                 groups = self.db.get_groups(admin_id)
 
                 active_accounts = [a for a in accounts if a[3] == 1]
-                target_groups = [g for g in groups]
 
-                if not active_accounts or not ads or not target_groups:
+                if not active_accounts or not ads or not groups:
                     await asyncio.sleep(10)
                     continue
 
                 random.shuffle(active_accounts)
                 random.shuffle(ads)
-                random.shuffle(target_groups)
+                random.shuffle(groups)
 
                 for acc in active_accounts:
 
@@ -117,7 +120,7 @@ class TelegramBotManager:
                     try:
                         client = await self.get_client(session_string)
                     except Exception as e:
-                        logger.error(f"Session failed: {e}")
+                        logger.error(f"[SESSION ERROR] {e}")
                         continue
 
                     for ad in ads:
@@ -126,17 +129,13 @@ class TelegramBotManager:
                         ad_text = ad[3]
                         ad_media = ad[4]
 
-                        for group in target_groups:
+                        for group in groups:
 
                             group_link = group[2]
 
                             try:
-
                                 if ad_type == "text":
-                                    await client.send_message(
-                                        group_link,
-                                        ad_text
-                                    )
+                                    await client.send_message(group_link, ad_text)
 
                                 elif ad_type == "photo":
                                     await client.send_file(
@@ -146,70 +145,43 @@ class TelegramBotManager:
                                     )
 
                                 elif ad_type == "contact":
-                                    await client.send_file(
-                                        group_link,
-                                        ad_media
-                                    )
+                                    await client.send_file(group_link, ad_media)
 
                                 logger.info(
-                                    f"[SENT] acc:{acc[0]} -> {group_link}"
+                                    f"[SENT] acc={acc[0]} -> {group_link}"
                                 )
 
                                 await asyncio.sleep(self.publish_delay)
 
                             except FloodWaitError as e:
-                                logger.warning(f"FloodWait {e.seconds}s")
+                                logger.warning(f"[FLOODWAIT] {e.seconds}s")
                                 await asyncio.sleep(e.seconds)
 
                             except Exception as e:
-                                logger.error(f"Send error: {e}")
-                                await asyncio.sleep(2)
+                                logger.error(f"[SEND ERROR] {e}")
+                                await asyncio.sleep(3)
 
-                await asyncio.sleep(
-                    DELAY_SETTINGS["publishing"]["between_cycles"]
-                )
+                # pause between cycles
+                await asyncio.sleep(30)
 
-            except asyncio.CancelledError:
-                logger.info(f"[PUBLISH] Stopped for admin {admin_id}")
-                break
+        except asyncio.CancelledError:
+            logger.info(f"[PUBLISH LOOP CANCELLED] admin {admin_id}")
 
-            except Exception as e:
-                logger.exception(e)
-                await asyncio.sleep(5)
+        except Exception as e:
+            logger.exception(f"[PUBLISH LOOP ERROR] {e}")
 
 
     # ==================================================
-    # JOIN GROUPS (OPTIONAL REAL LATER)
+    # CLEANUP (OPTIONAL)
     # ==================================================
 
-    def start_join_groups(self, admin_id):
+    async def shutdown(self):
 
-        if admin_id in self.join_tasks:
-            return False
-
-        task = asyncio.create_task(
-            self._join_groups_loop(admin_id)
-        )
-
-        self.join_tasks[admin_id] = task
-        return True
-
-
-    def stop_join_groups(self, admin_id):
-
-        task = self.join_tasks.pop(admin_id, None)
-
-        if task:
+        for task in self.publish_tasks.values():
             task.cancel()
-            return True
 
-        return False
+        for client in self.clients.values():
+            await client.disconnect()
 
-
-    async def _join_groups_loop(self, admin_id):
-
-        while True:
-            try:
-                await asyncio.sleep(60)
-            except asyncio.CancelledError:
-                break
+        self.publish_tasks.clear()
+        self.clients.clear()
