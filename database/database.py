@@ -1,433 +1,360 @@
 import sqlite3
 from datetime import datetime
-from config import DB_NAME
+from typing import List, Tuple
+
+
+DB_NAME = "bot_database.db"
 
 
 class BotDatabase:
 
     def __init__(self):
         self.conn = sqlite3.connect(DB_NAME, check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        self.create_tables()
+        self.conn.row_factory = sqlite3.Row
+        self._create_tables()
 
 
-    # ================= UTILS =================
+    # ==================================================
+    # CREATE TABLES
+    # ==================================================
 
-    def now(self):
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def _create_tables(self):
 
+        cursor = self.conn.cursor()
 
-    def commit(self):
-        self.conn.commit()
-
-
-    # ================= CREATE TABLES =================
-
-    def create_tables(self):
-
-        self.cursor.executescript("""
-        
+        # ---------- ADMINS ----------
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS admins (
             id INTEGER PRIMARY KEY,
             username TEXT,
             role TEXT,
             active INTEGER,
-            added TEXT
-        );
+            added_at TEXT
+        )
+        """)
 
+        # ---------- ACCOUNTS ----------
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id INTEGER,
             session TEXT,
             active INTEGER,
-            added TEXT
-        );
+            added_at TEXT
+        )
+        """)
 
+        # ---------- ADS ----------
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS ads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id INTEGER,
             type TEXT,
             text TEXT,
-            media TEXT,
-            added TEXT
-        );
+            media_path TEXT,
+            added_at TEXT
+        )
+        """)
 
+        # ---------- GROUPS ----------
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id INTEGER,
             link TEXT,
             status TEXT,
-            added TEXT
-        );
+            added_at TEXT
+        )
+        """)
 
+        # ---------- PRIVATE REPLIES ----------
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS private_replies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id INTEGER,
             text TEXT,
-            added TEXT
-        );
+            added_at TEXT
+        )
+        """)
 
+        # ---------- RANDOM REPLIES ----------
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS random_replies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id INTEGER,
             type TEXT,
             text TEXT,
-            media TEXT,
-            added TEXT
-        );
-
+            media_path TEXT,
+            added_at TEXT
+        )
         """)
 
-        self.commit()
+        self.conn.commit()
 
 
-    # ================= ADMINS =================
+    # ==================================================
+    # ADMINS
+    # ==================================================
 
-    def is_admin(self, admin_id):
+    def add_admin(self, admin_id: int, username: str, role: str, active: bool = True):
 
-        self.cursor.execute(
-            "SELECT active FROM admins WHERE id=?",
-            (admin_id,)
-        )
-        row = self.cursor.fetchone()
+        cursor = self.conn.cursor()
 
-        return bool(row and row[0] == 1)
+        cursor.execute("""
+        INSERT OR IGNORE INTO admins (id, username, role, active, added_at)
+        VALUES (?, ?, ?, ?, ?)
+        """, (
+            admin_id,
+            username,
+            role,
+            1 if active else 0,
+            datetime.now().isoformat()
+        ))
 
-
-    def add_admin(self, admin_id, username, role, active=True):
-
-        self.cursor.execute(
-            """
-            INSERT OR REPLACE INTO admins
-            (id, username, role, active, added)
-            VALUES (?,?,?,?,?)
-            """,
-            (admin_id, username, role, int(active), self.now())
-        )
-
-        self.commit()
+        self.conn.commit()
         return True, "OK"
 
 
-    def get_admins(self):
+    def is_admin(self, admin_id: int) -> bool:
 
-        self.cursor.execute(
-            "SELECT * FROM admins ORDER BY added DESC"
-        )
-        return self.cursor.fetchall()
-
-
-    def delete_admin(self, admin_id):
-
-        self.cursor.execute(
-            "DELETE FROM admins WHERE id=?",
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id FROM admins WHERE id=? AND active=1",
             (admin_id,)
         )
 
-        self.commit()
-        return True
+        return cursor.fetchone() is not None
 
 
-    def toggle_admin_status(self, admin_id):
+    def get_admins(self) -> List[Tuple]:
 
-        self.cursor.execute(
-            "SELECT active FROM admins WHERE id=?",
-            (admin_id,)
-        )
-        row = self.cursor.fetchone()
-
-        if not row:
-            return False
-
-        new_status = 0 if row[0] == 1 else 1
-
-        self.cursor.execute(
-            "UPDATE admins SET active=? WHERE id=?",
-            (new_status, admin_id)
-        )
-
-        self.commit()
-        return True
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM admins")
+        return cursor.fetchall()
 
 
-    # ================= ACCOUNTS =================
+    def delete_admin(self, admin_id: int):
 
-    def add_account(self, admin_id, session):
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM admins WHERE id=?", (admin_id,))
+        self.conn.commit()
 
-        self.cursor.execute(
-            """
-            INSERT INTO accounts
-            (admin_id, session, active, added)
-            VALUES (?,?,?,?)
-            """,
-            (admin_id, session, 1, self.now())
-        )
 
-        self.commit()
+    # ==================================================
+    # ACCOUNTS
+    # ==================================================
+
+    def add_account(self, admin_id: int, session: str):
+
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+        INSERT INTO accounts (admin_id, session, active, added_at)
+        VALUES (?, ?, 1, ?)
+        """, (
+            admin_id,
+            session,
+            datetime.now().isoformat()
+        ))
+
+        self.conn.commit()
         return True, "OK"
 
 
-    def get_accounts(self, admin_id):
+    def get_accounts(self, admin_id: int):
 
-        self.cursor.execute(
-            """
-            SELECT * FROM accounts
-            WHERE admin_id=?
-            ORDER BY added DESC
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM accounts WHERE admin_id=?",
             (admin_id,)
         )
+        return cursor.fetchall()
 
-        return self.cursor.fetchall()
+
+    def toggle_account_status(self, account_id: int, admin_id: int):
+
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+        UPDATE accounts
+        SET active = CASE WHEN active=1 THEN 0 ELSE 1 END
+        WHERE id=? AND admin_id=?
+        """, (account_id, admin_id))
+
+        self.conn.commit()
 
 
-    def delete_account(self, account_id, admin_id):
+    def delete_account(self, account_id: int, admin_id: int):
 
-        self.cursor.execute(
-            """
-            DELETE FROM accounts
-            WHERE id=? AND admin_id=?
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "DELETE FROM accounts WHERE id=? AND admin_id=?",
             (account_id, admin_id)
         )
-
-        self.commit()
-        return True
+        self.conn.commit()
 
 
-    def toggle_account_status(self, account_id, admin_id):
+    # ==================================================
+    # ADS
+    # ==================================================
 
-        self.cursor.execute(
-            """
-            SELECT active FROM accounts
-            WHERE id=? AND admin_id=?
-            """,
-            (account_id, admin_id)
-        )
+    def add_ad(self, ad_type: str, text: str, media_path: str, _unused, admin_id: int):
 
-        row = self.cursor.fetchone()
+        cursor = self.conn.cursor()
 
-        if not row:
-            return False
+        cursor.execute("""
+        INSERT INTO ads (admin_id, type, text, media_path, added_at)
+        VALUES (?, ?, ?, ?, ?)
+        """, (
+            admin_id,
+            ad_type,
+            text,
+            media_path,
+            datetime.now().isoformat()
+        ))
 
-        new_status = 0 if row[0] == 1 else 1
-
-        self.cursor.execute(
-            """
-            UPDATE accounts
-            SET active=?
-            WHERE id=? AND admin_id=?
-            """,
-            (new_status, account_id, admin_id)
-        )
-
-        self.commit()
-        return True
-
-
-    # ================= ADS =================
-
-    def add_ad(self, ad_type, text, media, _unused, admin_id):
-
-        self.cursor.execute(
-            """
-            INSERT INTO ads
-            (admin_id, type, text, media, added)
-            VALUES (?,?,?,?,?)
-            """,
-            (admin_id, ad_type, text, media, self.now())
-        )
-
-        self.commit()
+        self.conn.commit()
         return True, "OK"
 
 
-    def get_ads(self, admin_id):
+    def get_ads(self, admin_id: int):
 
-        self.cursor.execute(
-            """
-            SELECT * FROM ads
-            WHERE admin_id=?
-            ORDER BY added DESC
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM ads WHERE admin_id=?",
             (admin_id,)
         )
+        return cursor.fetchall()
 
-        return self.cursor.fetchall()
 
+    def delete_ad(self, ad_id: int, admin_id: int):
 
-    def delete_ad(self, ad_id, admin_id):
-
-        self.cursor.execute(
-            """
-            DELETE FROM ads
-            WHERE id=? AND admin_id=?
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "DELETE FROM ads WHERE id=? AND admin_id=?",
             (ad_id, admin_id)
         )
-
-        self.commit()
-        return True
+        self.conn.commit()
 
 
-    # ================= GROUPS =================
+    # ==================================================
+    # GROUPS
+    # ==================================================
 
-    def add_group(self, admin_id, link):
+    def add_group(self, admin_id: int, link: str):
 
-        self.cursor.execute(
-            """
-            INSERT INTO groups
-            (admin_id, link, status, added)
-            VALUES (?,?,?,?)
-            """,
-            (admin_id, link, "pending", self.now())
-        )
+        cursor = self.conn.cursor()
 
-        self.commit()
+        cursor.execute("""
+        INSERT INTO groups (admin_id, link, status, added_at)
+        VALUES (?, ?, 'pending', ?)
+        """, (
+            admin_id,
+            link,
+            datetime.now().isoformat()
+        ))
+
+        self.conn.commit()
         return True, "OK"
 
 
-    def get_groups(self, admin_id):
+    def get_groups(self, admin_id: int):
 
-        self.cursor.execute(
-            """
-            SELECT * FROM groups
-            WHERE admin_id=?
-            ORDER BY added DESC
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM groups WHERE admin_id=?",
             (admin_id,)
         )
+        return cursor.fetchall()
 
-        return self.cursor.fetchall()
 
+    def delete_group(self, group_id: int, admin_id: int):
 
-    def delete_group(self, group_id, admin_id):
-
-        self.cursor.execute(
-            """
-            DELETE FROM groups
-            WHERE id=? AND admin_id=?
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "DELETE FROM groups WHERE id=? AND admin_id=?",
             (group_id, admin_id)
         )
-
-        self.commit()
-        return True
+        self.conn.commit()
 
 
-    # ================= PRIVATE REPLIES =================
+    # ==================================================
+    # PRIVATE REPLIES
+    # ==================================================
 
-    def add_private_reply(self, admin_id, text):
+    def add_private_reply(self, admin_id: int, text: str):
 
-        self.cursor.execute(
-            """
-            INSERT INTO private_replies
-            (admin_id, text, added)
-            VALUES (?,?,?)
-            """,
-            (admin_id, text, self.now())
-        )
+        cursor = self.conn.cursor()
 
-        self.commit()
-        return True, "OK"
+        cursor.execute("""
+        INSERT INTO private_replies (admin_id, text, added_at)
+        VALUES (?, ?, ?)
+        """, (
+            admin_id,
+            text,
+            datetime.now().isoformat()
+        ))
+
+        self.conn.commit()
 
 
-    def get_private_replies(self, admin_id):
+    def get_private_replies(self, admin_id: int):
 
-        self.cursor.execute(
-            """
-            SELECT * FROM private_replies
-            WHERE admin_id=?
-            ORDER BY added DESC
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM private_replies WHERE admin_id=?",
             (admin_id,)
         )
+        return cursor.fetchall()
 
-        return self.cursor.fetchall()
 
+    def delete_private_reply(self, reply_id: int, admin_id: int):
 
-    def delete_private_reply(self, reply_id, admin_id):
-
-        self.cursor.execute(
-            """
-            DELETE FROM private_replies
-            WHERE id=? AND admin_id=?
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "DELETE FROM private_replies WHERE id=? AND admin_id=?",
             (reply_id, admin_id)
         )
-
-        self.commit()
-        return True
+        self.conn.commit()
 
 
-    # ================= RANDOM REPLIES =================
+    # ==================================================
+    # RANDOM REPLIES
+    # ==================================================
 
-    def add_random_reply(self, admin_id, r_type, text, media):
+    def add_random_reply(self, admin_id: int, r_type: str, text: str, media_path: str):
 
-        self.cursor.execute(
-            """
-            INSERT INTO random_replies
-            (admin_id, type, text, media, added)
-            VALUES (?,?,?,?,?)
-            """,
-            (admin_id, r_type, text, media, self.now())
-        )
+        cursor = self.conn.cursor()
 
-        self.commit()
-        return True, "OK"
+        cursor.execute("""
+        INSERT INTO random_replies (admin_id, type, text, media_path, added_at)
+        VALUES (?, ?, ?, ?, ?)
+        """, (
+            admin_id,
+            r_type,
+            text,
+            media_path,
+            datetime.now().isoformat()
+        ))
+
+        self.conn.commit()
 
 
-    def get_random_replies(self, admin_id):
+    def get_random_replies(self, admin_id: int):
 
-        self.cursor.execute(
-            """
-            SELECT * FROM random_replies
-            WHERE admin_id=?
-            ORDER BY added DESC
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM random_replies WHERE admin_id=?",
             (admin_id,)
         )
+        return cursor.fetchall()
 
-        return self.cursor.fetchall()
 
+    def delete_random_reply(self, reply_id: int, admin_id: int):
 
-    def delete_random_reply(self, reply_id, admin_id):
-
-        self.cursor.execute(
-            """
-            DELETE FROM random_replies
-            WHERE id=? AND admin_id=?
-            """,
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "DELETE FROM random_replies WHERE id=? AND admin_id=?",
             (reply_id, admin_id)
         )
-
-        self.commit()
-        return True
-
-
-    # ================= SYSTEM STATS =================
-
-    def get_system_statistics(self):
-
-        tables = [
-            "admins",
-            "accounts",
-            "ads",
-            "groups",
-            "private_replies",
-            "random_replies"
-        ]
-
-        stats = {}
-
-        for table in tables:
-            self.cursor.execute(f"SELECT COUNT(*) FROM {table}")
-            stats[table] = self.cursor.fetchone()[0]
-
-        return {
-            "admins": stats["admins"],
-            "accounts": stats["accounts"],
-            "ads": stats["ads"],
-            "groups": stats["groups"],
-            "replies": stats["private_replies"] + stats["random_replies"]
-        }
+        self.conn.commit()
