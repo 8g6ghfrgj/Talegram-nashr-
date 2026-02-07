@@ -12,8 +12,23 @@ from config import BOT_TOKEN, OWNER_ID, MESSAGES
 from database.database import BotDatabase
 from managers.telegram_manager import TelegramBotManager
 
-# menus سيتم إنشاؤه بعد هذه الخطوة
-from menus import show_main_menu
+# menus
+from menus import show_main_menu, register_menu_handlers
+
+# conversations
+from conversations.add_account import get_add_account_conversation
+from conversations.add_admin import get_add_admin_conversation
+from conversations.add_ad import get_add_ad_conversation
+from conversations.add_group import get_add_group_conversation
+from conversations.add_reply import get_add_reply_conversation
+from conversations.set_publish_delay import get_set_publish_delay_conversation
+
+# handlers (عرض / حذف فقط)
+from handlers.account_handlers import AccountHandlers
+from handlers.ad_handlers import AdHandlers
+from handlers.group_handlers import GroupHandlers
+from handlers.reply_handlers import ReplyHandlers
+from handlers.admin_handlers import AdminHandlers
 
 
 # ==================================================
@@ -40,25 +55,51 @@ class MainBot:
             print("❌ BOT_TOKEN غير موجود")
             sys.exit(1)
 
-        # ===== DATABASE =====
+        # ================= DATABASE =================
         self.db = BotDatabase()
 
-        # ===== MANAGER =====
+        # ================= MANAGER =================
         self.manager = TelegramBotManager(self.db)
 
-        # ===== APPLICATION =====
+        # ================= APPLICATION =================
         self.app = Application.builder().token(BOT_TOKEN).build()
 
-        # ===== HANDLERS =====
-        self.register_handlers()
+        # ================= BOT DATA =================
+        self.app.bot_data["db"] = self.db
+        self.app.bot_data["manager"] = self.manager
 
-        # ===== ADD OWNER =====
+        # ================= HANDLERS =================
+        self._init_handlers()
+
+        # ================= REGISTER =================
+        self._register_handlers()
+
+        # ================= OWNER =================
         self.db.add_admin(
-            OWNER_ID,
-            "owner",
-            "المالك الرئيسي",
-            True
+            admin_id=OWNER_ID,
+            username="owner",
+            role="المالك الرئيسي",
+            active=True
         )
+
+
+    # ==================================================
+    # INIT HANDLERS OBJECTS
+    # ==================================================
+
+    def _init_handlers(self):
+
+        self.account_handlers = AccountHandlers(self.db)
+        self.ad_handlers = AdHandlers(self.db)
+        self.group_handlers = GroupHandlers(self.db)
+        self.reply_handlers = ReplyHandlers(self.db)
+        self.admin_handlers = AdminHandlers(self.db)
+
+        self.app.bot_data["account_handlers"] = self.account_handlers
+        self.app.bot_data["ad_handlers"] = self.ad_handlers
+        self.app.bot_data["group_handlers"] = self.group_handlers
+        self.app.bot_data["reply_handlers"] = self.reply_handlers
+        self.app.bot_data["admin_handlers"] = self.admin_handlers
 
 
     # ==================================================
@@ -80,14 +121,23 @@ class MainBot:
     # REGISTER HANDLERS
     # ==================================================
 
-    def register_handlers(self):
+    def _register_handlers(self):
 
+        # commands
         self.app.add_handler(CommandHandler("start", self.start))
 
-        # لاحقًا سنضيف:
-        # - menus callbacks
-        # - conversations هنا (واحد واحد)
+        # menus (CallbackQueryHandler واحد فقط)
+        register_menu_handlers(self.app)
 
+        # conversations (إضافة فقط)
+        self.app.add_handler(get_add_account_conversation())
+        self.app.add_handler(get_add_admin_conversation())
+        self.app.add_handler(get_add_ad_conversation())
+        self.app.add_handler(get_add_group_conversation())
+        self.app.add_handler(get_add_reply_conversation())
+        self.app.add_handler(get_set_publish_delay_conversation())
+
+        # errors
         self.app.add_error_handler(self.error_handler)
 
 
@@ -104,7 +154,7 @@ class MainBot:
                 await update.effective_message.reply_text(
                     "❌ حدث خطأ في النظام"
                 )
-            except:
+            except Exception:
                 pass
 
 
